@@ -6,7 +6,7 @@
 
 Desktop-приложение на **C++/Qt 6 (Widgets)**: просмотр пакетов разных менеджеров (pip, npm, vcpkg) с ответом на вопрос «из какого окружения пакет». Архитектура описана в [docs/](docs/) (в особенности `docs/Package Browser.md` и `docs/Доменная модель.md`).
 
-Стек: CMake, C++17, Qt 6 Widgets, SQLite (Qt SQL). Официальная политика сборки — CMake. Зависимости через Conan (см. docs).
+Стек: CMake, C++17, Qt 6 Widgets, SQLite (Qt SQL). Сборка ведётся через CMake.
 
 ## Правило gitflow (обязательно)
 
@@ -30,7 +30,6 @@ Desktop-приложение на **C++/Qt 6 (Widgets)**: просмотр па�
 ## Сборка
 
 ```sh
-# зависимости Qt через Conan (см. docs)
 cmake -S . -B build
 cmake --build build
 ctest --test-dir build
