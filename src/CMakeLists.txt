@@ -15,6 +15,7 @@ qt_standard_project_setup()
 set(PB_CORE_SOURCES
     core.cpp
     cache/Cache.cpp
+    catalog/CatalogService.cpp
     domain/EnvironmentId.cpp
     domain/Environment.cpp
     domain/Ecosystem.cpp
@@ -22,10 +23,12 @@ set(PB_CORE_SOURCES
     normalization/Pep503Normalizer.cpp
     provider/BuiltinPipProvider.cpp
     scanner/Scanner.cpp
+    settings/AppSettings.cpp
 )
 
 set(PB_CORE_HEADERS
     cache/Cache.h
+    catalog/CatalogService.h
     domain/EnvironmentId.h
     domain/Environment.h
     domain/Installation.h
@@ -37,6 +40,7 @@ set(PB_CORE_HEADERS
     provider/BuiltinPipProvider.h
     normalization/Pep503Normalizer.h
     scanner/Scanner.h
+    settings/AppSettings.h
 )
 
 add_library(pb_core STATIC ${PB_CORE_SOURCES})
