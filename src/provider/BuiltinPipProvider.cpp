@@ -11,6 +11,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTextStream>
 
@@ -88,13 +89,17 @@ QVector<Installation> parsePipJson(const QByteArray& json, const EnvironmentId& 
 QVector<Installation> readVenvFromFiles(const QString& venvRoot, const EnvironmentId& envId)
 {
     QVector<Installation> out;
-    const QString sitePackages = QDir(venvRoot)
-        .filePath(QLatin1String("Lib/site-packages")); // Windows layout
-    const QString sitePackagesPosix = QDir(venvRoot)
-        .filePath(QLatin1String("lib/python3/site-packages"));
-    const QStringList candidates = { sitePackages, sitePackagesPosix };
+    QStringList sitePackagesCandidates;
+    sitePackagesCandidates << QDir(venvRoot).filePath(QLatin1String("Lib/site-packages")); // Windows
+    // POSIX venvs use lib/python3.<minor>/site-packages; match any python3.x.
+    const QDir libDir(QDir(venvRoot).filePath(QLatin1String("lib")));
+    const QStringList pyDirs = libDir.entryList(
+        QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)
+        .filter(QRegularExpression(QStringLiteral("^python3\\.")));
+    for (const QString& py : pyDirs)
+        sitePackagesCandidates << libDir.filePath(py + QLatin1String("/site-packages"));
 
-    for (const QString& candidate : candidates) {
+    for (const QString& candidate : sitePackagesCandidates) {
         const QDir dir(candidate);
         if (!dir.exists())
             continue;
@@ -105,14 +110,15 @@ QVector<Installation> readVenvFromFiles(const QString& venvRoot, const Environme
             QFile file(metaPath);
             if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
                 continue;
+            // METADATA starts with "Name: <name>" then "Version: <version>".
+            // Read both lines while the stream is still attached to the device.
             QTextStream ts(&file);
             const QString first = ts.readLine();
+            const QString versionLine = ts.readLine();
             file.close();
-            // METADATA starts with "Name: <name>" then "Version: <version>".
             if (!first.startsWith(QLatin1String("Name: ")))
                 continue;
             const QString name = first.mid(6).trimmed();
-            const QString versionLine = ts.readLine();
             QString version;
             if (versionLine.startsWith(QLatin1String("Version: ")))
                 version = versionLine.mid(9).trimmed();
@@ -128,12 +134,18 @@ QVector<Installation> readVenvFromFiles(const QString& venvRoot, const Environme
 bool isTrusted(const QString& root, const QStringList& trustedRoots)
 {
     const QString canonicalRoot = QFileInfo(root).canonicalFilePath();
+    if (canonicalRoot.isEmpty())
+        return false;
     for (const QString& r : trustedRoots) {
         if (r.isEmpty())
             continue;
         const QString canonicalTrusted = QFileInfo(r).canonicalFilePath();
-        if (!canonicalTrusted.isEmpty()
-            && canonicalRoot.startsWith(canonicalTrusted))
+        if (canonicalTrusted.isEmpty())
+            continue;
+        // Same directory, or a genuine descendant (separator boundary), so
+        // that C:/work/app does not treat C:/work/apple as trusted.
+        if (canonicalRoot == canonicalTrusted
+            || (canonicalRoot.startsWith(canonicalTrusted + QLatin1Char('/'))))
             return true;
     }
     return false;
@@ -205,6 +217,7 @@ ProviderResult<QVector<Environment>> BuiltinPipProvider::locate(const ToolInstan
     QFileInfo fi(tool.path());
     const QString root = fi.dir().path();
     const auto envId = EnvironmentId::fromHashed(kPluginId.value(), root);
+    m_envToolPaths.insert(envId.value(), tool.path());
     result.value.append(Environment(envId, kind(), Scope::System, root, tool.id()));
     return result;
 }
@@ -227,6 +240,12 @@ ProviderResult<QVector<Environment>> BuiltinPipProvider::locateAt(const QString&
         const EnvStatus status = isTrusted(envRoot, m_trustedRoots) ? EnvStatus::Ok : EnvStatus::Untrusted;
         result.value.append(
             Environment(envId, kind(), Scope::Project, envRoot, toolId, QString(), status));
+        if (status == EnvStatus::Ok) {
+            m_envToolPaths.insert(envId.value(),
+                                  QFileInfo::exists(QDir(envRoot).filePath(QLatin1String("Scripts/pip.exe")))
+                                      ? QDir(envRoot).filePath(QLatin1String("Scripts/pip.exe"))
+                                      : QDir(envRoot).filePath(QLatin1String("bin/pip")));
+        }
     }
     return result;
 }
@@ -234,8 +253,22 @@ ProviderResult<QVector<Environment>> BuiltinPipProvider::locateAt(const QString&
 ProviderResult<QString> BuiltinPipProvider::fingerprint(const Environment& env)
 {
     ProviderResult<QString> result;
-    const QString fp = QString::number(static_cast<qulonglong>(env.root().length()));
-    result.value = fp;
+    // Cheap disk-based fingerprint: hash the sorted set of *.dist-info names
+    // under the site-packages layouts. Changes when the installed set changes,
+    // and does not execute anything.
+    QStringList names;
+    for (const QString& candidate : { QDir(env.root()).filePath(QLatin1String("Lib/site-packages")),
+                                      QDir(env.root()).filePath(QLatin1String("lib/python3/site-packages")) }) {
+        const QDir dir(candidate);
+        if (!dir.exists())
+            continue;
+        names << dir.entryList({ QStringLiteral("*.dist-info") },
+                               QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    }
+    names.sort();
+    const QByteArray joined = names.join(QLatin1Char('\n')).toUtf8();
+    result.value = QString::fromUtf8(
+        QCryptographicHash::hash(joined, QCryptographicHash::Sha1).toHex());
     return result;
 }
 
@@ -252,23 +285,22 @@ ProviderResult<QVector<Installation>> BuiltinPipProvider::list(const Environment
     }
 
     // Trusted (or system): run pip to list packages.
-    QString pipPath;
-    if (!env.toolId().isEmpty() && env.toolId().startsWith(QLatin1String("builtin.pip:venv:"))) {
+    QString pipPath = m_envToolPaths.value(env.id().value());
+    if (pipPath.isEmpty() && env.toolId().startsWith(QLatin1String("builtin.pip:venv:"))) {
         // venv pip executable, platform dependent.
         const QString candidate = QDir(env.root()).filePath(QLatin1String("Scripts/pip.exe"));
-        pipPath = QFileInfo::exists(candidate) ? candidate : pipPath;
-        if (pipPath.isEmpty()) {
+        if (QFileInfo::exists(candidate))
+            pipPath = candidate;
+        else {
             const QString candidatePosix = QDir(env.root()).filePath(QLatin1String("bin/pip"));
             if (QFileInfo::exists(candidatePosix))
                 pipPath = candidatePosix;
         }
-    } else {
-        // System pip: locate the tool by its path that was stored in the environment.
-        // Fallback to searching PATH.
-        pipPath = findOnPath(QStringLiteral("pip"));
-        if (pipPath.isEmpty())
-            pipPath = findOnPath(QStringLiteral("pip3"));
     }
+    if (pipPath.isEmpty())
+        pipPath = findOnPath(QStringLiteral("pip"));
+    if (pipPath.isEmpty())
+        pipPath = findOnPath(QStringLiteral("pip3"));
 
     if (pipPath.isEmpty()) {
         result.error = ProviderError::ToolNotFound;

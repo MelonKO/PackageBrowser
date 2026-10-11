@@ -2,6 +2,7 @@
 
 #include "provider/IProvider.h"
 
+#include <QHash>
 #include <QStringList>
 
 // Built-in pip provider: a plain C++ class implementing IProvider. Read-only.
@@ -27,4 +28,6 @@ public:
 
 private:
     QStringList m_trustedRoots;
+    // envId -> resolved tool path, so list() does not re-resolve PATH.
+    QHash<QString, QString> m_envToolPaths;
 };

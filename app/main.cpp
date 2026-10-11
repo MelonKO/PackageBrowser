@@ -2,8 +2,8 @@
 #include "catalog/CatalogService.h"
 
 #include <QApplication>
-
 #include <QDir>
+#include <QTimer>
 
 int main(int argc, char* argv[])
 {
@@ -19,8 +19,9 @@ int main(int argc, char* argv[])
     MainWindow window(&catalog);
     window.show();
 
-    // Scan in the background after the window is visible (stale-while-revalidate).
-    catalog.rescan();
+    // Run the scan once the event loop starts so the window paints the cached
+    // data first (stale-while-revalidate); progress arrives via scanProgress.
+    QTimer::singleShot(0, &catalog, [&catalog]() { catalog.rescan(); });
 
     return app.exec();
 }

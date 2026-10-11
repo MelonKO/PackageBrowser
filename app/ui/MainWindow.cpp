@@ -90,11 +90,9 @@ void MainWindow::onShowAllToggled(bool checked)
 
 void MainWindow::onFilterChanged(const QString& text)
 {
+    // The proxy filters the current table with substring semantics in every
+    // mode, so "All packages" and per-environment views behave consistently.
     m_filterProxy.setFilterText(text);
-    if (m_allToggle->isChecked()) {
-        // Re-evaluate the flat list against the filter.
-        m_tableModel.setInstallations(m_catalog->findPackage(text));
-    }
 }
 
 void MainWindow::onScanFinished()

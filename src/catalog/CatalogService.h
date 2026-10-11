@@ -37,7 +37,9 @@ public:
     // Flat list of every installed package across all environments.
     QVector<Installation> allPackages() const;
 
-    // Starts a synchronous scan (unit-test friendly). UI runs it in a worker.
+    // Runs a scan synchronously on the calling (UI) thread. In later stages
+    // the UI moves this call to a worker thread and reacts to scanProgress;
+    // progress is emitted here so the signal is exercised and ready.
     void rescan();
 
     // Settings passthrough.
