@@ -9,20 +9,31 @@ endif()
 
 qt_standard_project_setup()
 
-add_executable(package_browser
-    main.cpp
+# UI models are shared between the app and its tests, so factor them out.
+add_library(pb_ui_models STATIC
     ui/EnvironmentTreeModel.cpp
     ui/EnvironmentTreeModel.h
     ui/InstallationTableModel.cpp
     ui/InstallationTableModel.h
-    ui/MainWindow.cpp
-    ui/MainWindow.h
     ui/PackageFilterProxy.cpp
     ui/PackageFilterProxy.h
+)
+
+target_include_directories(pb_ui_models PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_link_libraries(pb_ui_models PRIVATE Qt6::Core Qt6::Gui)
+
+add_executable(package_browser
+    main.cpp
+    ui/MainWindow.cpp
+    ui/MainWindow.h
 )
 
 target_include_directories(package_browser PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
-target_link_libraries(package_browser PRIVATE pb_core Qt6::Widgets Qt6::Sql)
+target_link_libraries(package_browser PRIVATE pb_core pb_ui_models Qt6::Widgets Qt6::Sql)
