@@ -1,4 +1,4 @@
-// Каркас ядра. Реальная доменная модель появится на этапе 1 roadmap
+// Core scaffold. The real domain model arrives on roadmap stage 1
 // (CatalogService, IProvider, Scanner, Cache).
 
 #include "domain/Scope.h"
