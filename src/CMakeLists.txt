@@ -20,6 +20,8 @@ set(PB_CORE_SOURCES
     domain/Ecosystem.cpp
     domain/PluginId.cpp
     normalization/Pep503Normalizer.cpp
+    provider/BuiltinPipProvider.cpp
+    scanner/Scanner.cpp
 )
 
 set(PB_CORE_HEADERS
@@ -32,7 +34,9 @@ set(PB_CORE_HEADERS
     domain/Scope.h
     domain/ToolInstance.h
     provider/IProvider.h
+    provider/BuiltinPipProvider.h
     normalization/Pep503Normalizer.h
+    scanner/Scanner.h
 )
 
 add_library(pb_core STATIC ${PB_CORE_SOURCES})
