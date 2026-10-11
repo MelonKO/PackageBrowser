@@ -35,8 +35,10 @@ void Pep503NormalizerTest::preservesDashes()
 
 void Pep503NormalizerTest::handlesLeadingAndTrailingSeparators()
 {
-    QCOMPARE(Pep503Normalizer::normalize(QStringLiteral("-foo")), QStringLiteral("-foo"));
-    QCOMPARE(Pep503Normalizer::normalize(QStringLiteral("foo-")), QStringLiteral("foo-"));
+    // PEP 503 strips leading/trailing separator runs.
+    QCOMPARE(Pep503Normalizer::normalize(QStringLiteral("-foo")), QStringLiteral("foo"));
+    QCOMPARE(Pep503Normalizer::normalize(QStringLiteral("foo-")), QStringLiteral("foo"));
+    QCOMPARE(Pep503Normalizer::normalize(QStringLiteral("--foo_")), QStringLiteral("foo"));
 }
 
 QTEST_MAIN(Pep503NormalizerTest)

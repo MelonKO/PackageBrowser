@@ -34,7 +34,7 @@ void Scanner::scanRoots(const QStringList& roots,
     for (const QString& r : ignoreRoots) {
         const QString c = QFileInfo(r).canonicalFilePath();
         if (!c.isEmpty())
-            ignored.insert(c);
+            ignored.insert(QDir::cleanPath(c));
     }
 
     // BFS over the given roots, calling locateAt on each directory.

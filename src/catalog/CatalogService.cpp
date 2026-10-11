@@ -81,7 +81,7 @@ void CatalogService::rescan()
     m_environments = globalEnvs + projectEnvs;
 
     // 3. Persist tools, environments and their packages, then notify.
-    emit scanProgress(0, m_environments.size() + (m_tools.isEmpty() ? 0 : 1));
+    emit scanProgress(0, m_environments.size());
     for (const ToolInstance& tool : m_tools)
         m_cache->upsertTool(tool);
     for (int i = 0; i < m_environments.size(); ++i) {

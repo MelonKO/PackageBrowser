@@ -58,8 +58,7 @@ MainWindow::MainWindow(CatalogService* catalog, QWidget* parent)
     connect(m_catalog, &CatalogService::environmentsChanged, this, [this]() {
         m_treeModel.setEnvironments(m_catalog->listEnvironments());
     });
-    connect(m_catalog, &CatalogService::installationsChanged, this,
-            &MainWindow::onScanFinished);
+    connect(m_catalog, &CatalogService::scanFinished, this, &MainWindow::onScanFinished);
 }
 
 void MainWindow::onEnvironmentSelected(const QModelIndex& index)

@@ -245,31 +245,41 @@ void Cache::updateEnvironmentStatus(const EnvironmentId& id, EnvStatus status)
 
 void Cache::replaceInstallations(const EnvironmentId& envId, const QVector<Installation>& packages)
 {
-    d->db.transaction();
+    if (!d->db.transaction())
+        return;
 
+    bool ok = true;
     QSqlQuery del(d->db);
     del.prepare(QStringLiteral("DELETE FROM installation WHERE env_id = :env_id"));
     del.bindValue(QStringLiteral(":env_id"), envId.value());
-    del.exec();
+    ok = ok && del.exec();
 
-    QSqlQuery ins(d->db);
-    ins.prepare(QStringLiteral(
-        "INSERT INTO installation (env_id, name_norm, name_display, version, location, is_direct) "
-        "VALUES (:env_id, :name_norm, :name_display, :version, :location, :is_direct)"));
-    for (const Installation& p : packages) {
-        ins.bindValue(QStringLiteral(":env_id"), envId.value());
-        ins.bindValue(QStringLiteral(":name_norm"), p.nameNorm());
-        ins.bindValue(QStringLiteral(":name_display"), p.nameDisplay());
-        ins.bindValue(QStringLiteral(":version"), p.version().isEmpty() ? QVariant(QVariant::String) : QVariant(p.version()));
-        ins.bindValue(QStringLiteral(":location"), p.location().isEmpty() ? QVariant(QVariant::String) : QVariant(p.location()));
-        if (p.isDirect().has_value())
-            ins.bindValue(QStringLiteral(":is_direct"), p.isDirect().value() ? 1 : 0);
-        else
-            ins.bindValue(QStringLiteral(":is_direct"), QVariant(QVariant::Int));
-        ins.exec();
+    if (ok) {
+        QSqlQuery ins(d->db);
+        ins.prepare(QStringLiteral(
+            "INSERT INTO installation (env_id, name_norm, name_display, version, location, is_direct) "
+            "VALUES (:env_id, :name_norm, :name_display, :version, :location, :is_direct)"));
+        for (const Installation& p : packages) {
+            ins.bindValue(QStringLiteral(":env_id"), envId.value());
+            ins.bindValue(QStringLiteral(":name_norm"), p.nameNorm());
+            ins.bindValue(QStringLiteral(":name_display"), p.nameDisplay());
+            ins.bindValue(QStringLiteral(":version"), p.version().isEmpty() ? QVariant(QVariant::String) : QVariant(p.version()));
+            ins.bindValue(QStringLiteral(":location"), p.location().isEmpty() ? QVariant(QVariant::String) : QVariant(p.location()));
+            if (p.isDirect().has_value())
+                ins.bindValue(QStringLiteral(":is_direct"), p.isDirect().value() ? 1 : 0);
+            else
+                ins.bindValue(QStringLiteral(":is_direct"), QVariant(QVariant::Int));
+            if (!ins.exec()) {
+                ok = false;
+                break;
+            }
+        }
     }
 
-    d->db.commit();
+    if (ok)
+        d->db.commit();
+    else
+        d->db.rollback();
 }
 
 QVector<Installation> Cache::installations(const EnvironmentId& envId) const

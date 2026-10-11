@@ -25,7 +25,9 @@ static QString makeBareVenv(const QString& root)
         QFile meta(site.filePath(QStringLiteral("requests.dist-info/METADATA")));
         if (meta.open(QIODevice::WriteOnly | QIODevice::Text)) {
             QTextStream ts(&meta);
-            ts << "Name: Requests\n"
+            // Real pip METADATA starts with Metadata-Version, then Name, Version.
+            ts << "Metadata-Version: 2.1\n"
+               << "Name: Requests\n"
                << "Version: 2.31.0\n";
             meta.close();
         }

@@ -28,8 +28,6 @@ private slots:
     void onShowAllToggled(bool checked);
 
 private:
-    void refreshTable();
-
     CatalogService* m_catalog;
     EnvironmentTreeModel m_treeModel;
     InstallationTableModel m_tableModel;

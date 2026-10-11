@@ -49,8 +49,12 @@ std::optional<QByteArray> runProcess(const QString& exe, const QStringList& args
     proc.start(exe, args);
     if (!proc.waitForStarted(3000))
         return std::nullopt;
-    if (!proc.waitForFinished(15000))
+    if (!proc.waitForFinished(15000)) {
+        // Terminate a hung child rather than leaving it running.
+        proc.kill();
+        proc.waitForFinished(3000);
         return std::nullopt;
+    }
     if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0)
         return std::nullopt;
     return proc.readAllStandardOutput();
@@ -105,18 +109,23 @@ QVector<Installation> readVenvFromFiles(const QString& venvRoot, const Environme
             QFile file(metaPath);
             if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
                 continue;
-            // METADATA starts with "Name: <name>" then "Version: <version>".
-            // Read both lines while the stream is still attached to the device.
+            // Core Metadata is an RFC-822-style header block: fields may appear
+            // in any order, so scan all header lines and pick out Name/Version.
             QTextStream ts(&file);
-            const QString first = ts.readLine();
-            const QString versionLine = ts.readLine();
-            file.close();
-            if (!first.startsWith(QLatin1String("Name: ")))
-                continue;
-            const QString name = first.mid(6).trimmed();
+            QString name;
             QString version;
-            if (versionLine.startsWith(QLatin1String("Version: ")))
-                version = versionLine.mid(9).trimmed();
+            const QString lowerNamePrefix = QStringLiteral("name:");
+            const QString lowerVersionPrefix = QStringLiteral("version:");
+            while (!ts.atEnd()) {
+                const QString line = ts.readLine();
+                if (line.isEmpty() || line.startsWith(QLatin1Char(' ')) || line.startsWith(QLatin1Char('\t')))
+                    break; // blank line or folded continuation ends the header block
+                if (name.isEmpty() && line.startsWith(lowerNamePrefix, Qt::CaseInsensitive))
+                    name = line.mid(5).trimmed();
+                else if (version.isEmpty() && line.startsWith(lowerVersionPrefix, Qt::CaseInsensitive))
+                    version = line.mid(8).trimmed();
+            }
+            file.close();
             if (name.isEmpty())
                 continue;
             out.append(Installation(envId, normalizedKey(name), name, version, metaPath));
@@ -126,21 +135,33 @@ QVector<Installation> readVenvFromFiles(const QString& venvRoot, const Environme
     return out;
 }
 
+// Normalize a path to forward slashes and collapse "." / ".." so prefix
+// comparisons are stable across the platform's native separator, then compare
+// against a directory boundary.
+static QString normalizedPrefixPath(const QString& path)
+{
+    QString p = QDir::fromNativeSeparators(QDir::cleanPath(path));
+    if (!p.endsWith(QLatin1Char('/')))
+        p += QLatin1Char('/');
+    return p;
+}
+
 bool isTrusted(const QString& root, const QStringList& trustedRoots)
 {
     const QString canonicalRoot = QFileInfo(root).canonicalFilePath();
     if (canonicalRoot.isEmpty())
         return false;
+    const QString rootKey = normalizedPrefixPath(canonicalRoot);
     for (const QString& r : trustedRoots) {
         if (r.isEmpty())
             continue;
         const QString canonicalTrusted = QFileInfo(r).canonicalFilePath();
         if (canonicalTrusted.isEmpty())
             continue;
-        // Same directory, or a genuine descendant (separator boundary), so
+        // Same directory, or a genuine descendant (directory boundary), so
         // that C:/work/app does not treat C:/work/apple as trusted.
-        if (canonicalRoot == canonicalTrusted
-            || (canonicalRoot.startsWith(canonicalTrusted + QLatin1Char('/'))))
+        const QString trustedKey = normalizedPrefixPath(canonicalTrusted);
+        if (rootKey == trustedKey || rootKey.startsWith(trustedKey))
             return true;
     }
     return false;
@@ -231,7 +252,6 @@ ProviderResult<QVector<Environment>> BuiltinPipProvider::locateAt(const QString&
         const QString envRoot = dir.canonicalPath();
         const auto envId = EnvironmentId::fromHashed(kPluginId.value(), envRoot);
         const QString toolId = QStringLiteral("builtin.pip:venv:%1").arg(envId.value());
-        const QString toolPath = QDir(envRoot).filePath(QLatin1String("Scripts/pip.exe"));
         const EnvStatus status = isTrusted(envRoot, m_trustedRoots) ? EnvStatus::Ok : EnvStatus::Untrusted;
         result.value.append(
             Environment(envId, kind(), Scope::Project, envRoot, toolId, QString(), status));
@@ -249,16 +269,32 @@ ProviderResult<QString> BuiltinPipProvider::fingerprint(const Environment& env)
 {
     ProviderResult<QString> result;
     // Cheap disk-based fingerprint: hash the sorted set of *.dist-info names
-    // under the site-packages layouts. Changes when the installed set changes,
-    // and does not execute anything.
+    // under all site-packages layouts reachable from the environment's root.
+    // Never executes anything and changes when the installed set changes.
     QStringList names;
-    for (const QString& candidate : { QDir(env.root()).filePath(QLatin1String("Lib/site-packages")),
-                                      QDir(env.root()).filePath(QLatin1String("lib/python3/site-packages")) }) {
+    const QDir rootDir(env.root());
+    const QStringList candidates = {
+        rootDir.filePath(QLatin1String("Lib/site-packages")),
+        rootDir.filePath(QLatin1String("lib/site-packages")),
+        rootDir.filePath(QLatin1String("lib/python3/site-packages")),
+        rootDir.filePath(QLatin1String("site-packages")),
+    };
+    for (const QString& candidate : candidates) {
         const QDir dir(candidate);
         if (!dir.exists())
             continue;
         names << dir.entryList({ QStringLiteral("*.dist-info") },
                                QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    }
+    // Also cover versioned POSIX layouts under lib/python3.*.
+    const QDir libDir(rootDir.filePath(QLatin1String("lib")));
+    const QStringList pyDirs = libDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)
+        .filter(QRegularExpression(QStringLiteral("^python3\\.")));
+    for (const QString& py : pyDirs) {
+        const QDir sp(libDir.filePath(py + QLatin1String("/site-packages")));
+        if (sp.exists())
+            names << sp.entryList({ QStringLiteral("*.dist-info") },
+                                  QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
     }
     names.sort();
     const QByteArray joined = names.join(QLatin1Char('\n')).toUtf8();

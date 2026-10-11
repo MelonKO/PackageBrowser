@@ -15,7 +15,9 @@
 class Cache;
 
 // Facade of the core and the single contact point for the UI. Reads come from
-// the cache; scanning runs in the background with stale-while-revalidate.
+// the cache. Scanning is synchronous on the calling thread for stage 1 (the
+// UI defers it after startup and reacts to scanProgress); a fingerprint-based
+// stale-while-revalidate refresh is planned for a later stage.
 // See docs/UI на Qt.md and docs/Хранилище и кэш.md.
 class CatalogService : public QObject {
     Q_OBJECT
