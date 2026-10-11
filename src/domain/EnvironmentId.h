@@ -12,6 +12,12 @@ public:
         return EnvironmentId(shortHash(pluginId, canonicalRoot));
     }
 
+    // Rebuild an id from its stored representation (e.g. loaded from the cache).
+    static EnvironmentId fromValue(const QString& value)
+    {
+        return EnvironmentId(value);
+    }
+
     const QString& value() const { return m_value; }
     bool isValid() const { return !m_value.isEmpty(); }
 

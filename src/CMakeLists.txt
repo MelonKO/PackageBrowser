@@ -3,9 +3,9 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-find_package(Qt6 COMPONENTS Core QUIET)
-if(NOT Qt6_FOUND OR NOT Qt6Core_FOUND)
-    message(FATAL_ERROR "Qt6 Core not found")
+find_package(Qt6 COMPONENTS Core Sql QUIET)
+if(NOT Qt6_FOUND OR NOT Qt6Core_FOUND OR NOT Qt6Sql_FOUND)
+    message(FATAL_ERROR "Qt6 Core/Sql not found")
 endif()
 
 qt_standard_project_setup()
@@ -14,6 +14,7 @@ qt_standard_project_setup()
 # CatalogService, Scanner, Cache and Plugin Host will be added on roadmap stages 1-3.
 set(PB_CORE_SOURCES
     core.cpp
+    cache/Cache.cpp
     domain/EnvironmentId.cpp
     domain/Environment.cpp
     domain/Ecosystem.cpp
@@ -22,6 +23,7 @@ set(PB_CORE_SOURCES
 )
 
 set(PB_CORE_HEADERS
+    cache/Cache.h
     domain/EnvironmentId.h
     domain/Environment.h
     domain/Installation.h
@@ -39,7 +41,7 @@ target_include_directories(pb_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(pb_core PRIVATE Qt6::Core)
+target_link_libraries(pb_core PRIVATE Qt6::Core Qt6::Sql)
 
 target_compile_options(pb_core PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4>

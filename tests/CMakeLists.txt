@@ -18,3 +18,7 @@ add_test(NAME pb_pep503_tests COMMAND pb_pep503_tests)
 add_executable(pb_domain_tests test_domain.cpp)
 target_link_libraries(pb_domain_tests PRIVATE pb_core Qt6::Test)
 add_test(NAME pb_domain_tests COMMAND pb_domain_tests)
+
+add_executable(pb_cache_tests test_cache.cpp)
+target_link_libraries(pb_cache_tests PRIVATE pb_core Qt6::Test)
+add_test(NAME pb_cache_tests COMMAND pb_cache_tests)
