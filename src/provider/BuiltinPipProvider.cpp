@@ -23,23 +23,18 @@ const PluginId kPluginId(QStringLiteral("builtin.pip"));
 
 ManagerKind kind() { return ManagerKind(kPluginId, Ecosystem::Python); }
 
-// Locate an executable by name on PATH, preferring the first hit.
+// Locate an executable by name on PATH. On Windows, prefer resolving from the
+// same directory (handles both bare names and .exe extensions) so that
+// reparse-point shims in WindowsApps are found like any other executable.
 QString findOnPath(const QString& exeName)
 {
     const QStringList paths = qEnvironmentVariable("PATH")
                                   .split(QDir::listSeparator(), Qt::SkipEmptyParts);
+    const char* exts[] = { "", ".exe" }; // ... only relevant on Windows
     for (const QString& dir : paths) {
-        const QFileInfo fi(QDir(dir).filePath(exeName));
-        if (fi.exists() && fi.isFile() && fi.isExecutable())
-            return fi.canonicalFilePath();
-    }
-    // Windows fallback: append .exe.
-    if (QFileInfo::exists(exeName + QLatin1String(".exe"))) {
-        const QStringList paths2 = qEnvironmentVariable("PATH")
-                                       .split(QDir::listSeparator(), Qt::SkipEmptyParts);
-        for (const QString& dir : paths2) {
-            const QFileInfo fi(QDir(dir).filePath(exeName + QLatin1String(".exe")));
-            if (fi.exists() && fi.isFile())
+        for (const char* ext : exts) {
+            const QFileInfo fi(QDir(dir).filePath(exeName + QLatin1String(ext)));
+            if (fi.exists() && fi.isFile() && fi.isExecutable())
                 return fi.canonicalFilePath();
         }
     }
@@ -286,8 +281,9 @@ ProviderResult<QVector<Installation>> BuiltinPipProvider::list(const Environment
 
     // Trusted (or system): run pip to list packages.
     QString pipPath = m_envToolPaths.value(env.id().value());
-    if (pipPath.isEmpty() && env.toolId().startsWith(QLatin1String("builtin.pip:venv:"))) {
-        // venv pip executable, platform dependent.
+    if (pipPath.isEmpty() && env.scope() == Scope::Project) {
+        // Trusted venv: the tool must be the venv's own pip; never fall back to
+        // a system pip from PATH, otherwise we list the wrong environment.
         const QString candidate = QDir(env.root()).filePath(QLatin1String("Scripts/pip.exe"));
         if (QFileInfo::exists(candidate))
             pipPath = candidate;
@@ -296,11 +292,12 @@ ProviderResult<QVector<Installation>> BuiltinPipProvider::list(const Environment
             if (QFileInfo::exists(candidatePosix))
                 pipPath = candidatePosix;
         }
-    }
-    if (pipPath.isEmpty())
+    } else if (pipPath.isEmpty()) {
+        // System pip: fall back to searching PATH only for System-scope envs.
         pipPath = findOnPath(QStringLiteral("pip"));
-    if (pipPath.isEmpty())
-        pipPath = findOnPath(QStringLiteral("pip3"));
+        if (pipPath.isEmpty())
+            pipPath = findOnPath(QStringLiteral("pip3"));
+    }
 
     if (pipPath.isEmpty()) {
         result.error = ProviderError::ToolNotFound;
