@@ -54,6 +54,13 @@ QVector<Installation> CatalogService::findPackage(const QString& name) const
     return out;
 }
 
+QVector<Installation> CatalogService::allPackages() const
+{
+    if (!m_cache)
+        return {};
+    return m_cache->allInstallations();
+}
+
 void CatalogService::rescan()
 {
     if (!m_cache)

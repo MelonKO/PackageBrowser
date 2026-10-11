@@ -34,6 +34,8 @@ public:
     QVector<Environment> listEnvironments() const;
     QVector<Installation> listInstallations(const EnvironmentId& envId) const;
     QVector<Installation> findPackage(const QString& name) const;
+    // Flat list of every installed package across all environments.
+    QVector<Installation> allPackages() const;
 
     // Starts a synchronous scan (unit-test friendly). UI runs it in a worker.
     void rescan();
