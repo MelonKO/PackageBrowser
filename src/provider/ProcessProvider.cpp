@@ -47,6 +47,16 @@ ProviderError errorFromRpc(const QJsonObject& error)
 
 } // namespace
 
+QString processProviderStateName(ProcessProviderState s)
+{
+    switch (s) {
+    case ProcessProviderState::Ready: return QStringLiteral("ready");
+    case ProcessProviderState::Failed: return QStringLiteral("failed");
+    case ProcessProviderState::Quarantined: return QStringLiteral("quarantined");
+    }
+    return QStringLiteral("unknown");
+}
+
 ProcessProvider::ProcessProvider(PluginManifest manifest, QObject* parent)
     : QObject(parent)
     , m_manifest(std::move(manifest))
@@ -203,8 +213,14 @@ QStringList ProcessProvider::skipDirs() const { return {}; }
 bool ProcessProvider::call(const QString& method, const QJsonObject& params, QJsonObject* result,
                            ProviderError* error)
 {
+    if (m_state == ProcessProviderState::Quarantined) {
+        *error = ProviderError::Unsupported;
+        return false;
+    }
+
     if (!ensureStarted()) {
         *error = ProviderError::ToolNotFound;
+        recordFailure();
         return false;
     }
 
@@ -223,6 +239,7 @@ bool ProcessProvider::call(const QString& method, const QJsonObject& params, QJs
         15000);
     if (!accepted) {
         *error = ProviderError::ToolNotFound;
+        recordFailure();
         return false;
     }
 
@@ -232,10 +249,40 @@ bool ProcessProvider::call(const QString& method, const QJsonObject& params, QJs
 
     if (!ok) {
         *error = errorFromRpc(gotError);
+        recordFailure();
         return false;
     }
+    // A live round-trip clears the failure streak.
+    m_consecutiveFailures = 0;
+    setState(ProcessProviderState::Ready);
     *result = gotResult;
     return true;
+}
+
+void ProcessProvider::recordFailure()
+{
+    ++m_consecutiveFailures;
+    setState(ProcessProviderState::Failed);
+    if (m_consecutiveFailures >= kQuarantineThreshold) {
+        setState(ProcessProviderState::Quarantined);
+        m_client.stop();
+    }
+}
+
+void ProcessProvider::setState(ProcessProviderState s)
+{
+    if (m_state == s)
+        return;
+    m_state = s;
+    emit stateChanged(s);
+}
+
+void ProcessProvider::reenable()
+{
+    m_consecutiveFailures = 0;
+    m_startFailed = false;
+    m_started = false;
+    setState(ProcessProviderState::Ready);
 }
 
 bool ProcessProvider::ensureStarted()

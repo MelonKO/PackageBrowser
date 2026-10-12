@@ -114,6 +114,7 @@ class RpcTest : public QObject {
 private slots:
     void framesOneMessage();
     void decodesFragmentedAndBatched();
+    void rejectsOversizedPayload();
     void clientRoundTripsEcho();
     void clientDeliversError();
     void clientDeliversNotifications();
@@ -127,6 +128,18 @@ void RpcTest::framesOneMessage()
     const QByteArray framed = frameMessage(payload);
     QVERIFY(framed.startsWith("Content-Length: "));
     QVERIFY(framed.endsWith("\r\n\r\n" + payload));
+}
+
+void RpcTest::rejectsOversizedPayload()
+{
+    // A declared body beyond the decoder's cap is a protocol violation: the
+    // channel must fail rather than buffer unbounded output.
+    FrameDecoder decoder(/*maxPayload=*/8);
+    const QByteArray payload = "{\"a\":\"012345678901234567890\"";
+    const QByteArray framed = frameMessage(payload);
+    const auto out = decoder.push(framed);
+    QCOMPARE(out.size(), 0);
+    QVERIFY(decoder.malformed());
 }
 
 void RpcTest::decodesFragmentedAndBatched()

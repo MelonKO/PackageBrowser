@@ -18,6 +18,7 @@ class ProcessProviderTest : public QObject {
 private slots:
     void manifestRejectsProviderAndToolTogether();
     void detectListsToolInstances();
+    void quarantinesAfterRepeatedFailures();
 
 private:
     static QString script();
@@ -171,6 +172,83 @@ void ProcessProviderTest::detectListsToolInstances()
     QCOMPARE(listed.value.size(), 1);
     QCOMPARE(listed.value[0].nameNorm(), QStringLiteral("zlib"));
     QCOMPARE(listed.value[0].version(), QStringLiteral("1.3"));
+}
+
+void ProcessProviderTest::quarantinesAfterRepeatedFailures()
+{
+    const QString py = pythonBinary();
+    if (py.isEmpty())
+        QSKIP("no system python on PATH");
+
+    // A provider whose process answers every request with an EnvBroken error:
+    // repeated failures must escalate Failed -> Quarantined.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString scriptPath = dir.filePath(QStringLiteral("failing_provider.py"));
+    const QString failingScript = QStringLiteral(R"PY(
+import sys, json
+
+def recv_message():
+    headers = {}
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            return None
+        line = line.strip()
+        if not line:
+            break
+        k, v = line.split(b":", 1)
+        headers[k.lower().strip()] = v.strip()
+    body = sys.stdin.buffer.read(int(headers[b"content-length"]))
+    return json.loads(body)
+
+def send(msg):
+    data = json.dumps(msg).encode()
+    sys.stdout.buffer.write(b"Content-Length: %d\r\n\r\n" % len(data) + data)
+    sys.stdout.buffer.flush()
+
+while True:
+    req = recv_message()
+    if req is None:
+        break
+    send({"jsonrpc": "2.0", "id": req["id"],
+          "error": {"code": -32000, "message": "boom",
+                    "data": {"kind": "EnvBroken"}}})
+sys.exit(0)
+)PY");
+    QFile f(scriptPath);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(failingScript.toUtf8());
+    f.close();
+
+    QString forward = scriptPath;
+    QString text = providerManifest();
+    text.replace(QStringLiteral("__PLUGIN_SCRIPT__"),
+                 forward.replace(QLatin1Char('\\'), QLatin1Char('/')));
+    QString pythonForward = py;
+    text.replace(QStringLiteral("__PYTHON__"),
+                 pythonForward.replace(QLatin1Char('\\'), QLatin1Char('/')));
+    QString error;
+    auto manifest = PluginManifest::parse(text, QStringLiteral("mock/plugin.toml"), &error);
+    QVERIFY2(manifest.has_value(), qPrintable(error));
+
+    ProcessProvider provider(*manifest);
+    QCOMPARE(provider.state(), ProcessProviderState::Ready);
+
+    // Each failing request bumps the streak. The final one crosses the
+    // threshold and quarantines the provider.
+    for (int i = 0; i < ProcessProvider::kQuarantineThreshold; ++i) {
+        const auto detected = provider.detect();
+        QVERIFY(!detected.ok());
+    }
+    QCOMPARE(provider.state(), ProcessProviderState::Quarantined);
+
+    // A quarantined provider refuses further calls until re-enabled.
+    const auto refused = provider.detect();
+    QVERIFY(!refused.ok());
+
+    provider.reenable();
+    QCOMPARE(provider.state(), ProcessProviderState::Ready);
 }
 
 QTEST_MAIN(ProcessProviderTest)

@@ -43,7 +43,9 @@ QList<QByteArray> FrameDecoder::push(const QByteArray& bytes)
             if (trimmed.startsWith("Content-Length:"))
                 length = trimmed.mid(sizeof("Content-Length:") - 1).trimmed().toInt();
         }
-        if (length < 0) {
+        if (length < 0 || length > m_maxPayload) {
+            // A header that resolves to an invalid or oversized body is a
+            // protocol violation: fail rather than buffer unbounded output.
             m_malformed = true;
             return out;
         }
