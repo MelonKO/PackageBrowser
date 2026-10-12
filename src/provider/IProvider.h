@@ -66,4 +66,10 @@ public:
     // List packages (with dependencies only if explicitly requested and supported).
     virtual ProviderResult<QVector<Installation>>
     list(const Environment& env, bool withDependencies = false) = 0;
+
+    // Hints for the scanner. A marker file makes a directory an environment
+    // root, so the walk must not descend into it; a skip dir is never walked
+    // for nested environments (e.g. node_modules). Aggregated across providers.
+    virtual QStringList projectMarkers() const { return {}; }
+    virtual QStringList skipDirs() const { return {}; }
 };
