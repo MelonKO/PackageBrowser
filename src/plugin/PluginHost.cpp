@@ -51,7 +51,9 @@ void PluginHost::load(const QString& pluginDir, const QStringList& disabledIds)
             continue;
         }
         if (disabledIds.contains(manifest->pluginId().value())) {
-            // Disabled by the user: not loaded. Data stays in the cache.
+            // User-disabled: the plugin is not loaded, so its environments are
+            // not scanned. Their cached data is left untouched and remains
+            // visible until the plugin is re-enabled; it is not marked stale.
             continue;
         }
         m_providers.append(new DeclarativeProvider(std::move(*manifest)));
