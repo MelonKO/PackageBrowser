@@ -27,6 +27,28 @@ Mandatory agent rules:
 5. When merging into `develop`, use `--no-ff` only.
 6. Do not list your current `feature/<name>` branch in AGENTS.md — it is one-off, created and deleted while working.
 
+## Workflow (mandatory)
+
+Follow this order for every task:
+
+1. **Plan** — state the goal, the roadmap acceptance criterion it must satisfy, the files/layers involved and the risks. For non-trivial or multi-step work, also keep a visible todo list.
+2. **Get the plan approved** — if there are open choices that change the direction, ask before implementing; do not guess.
+3. **Create a branch** — `git switch develop`, `git pull --ff-only` (when freshness is certain), then `git switch -c feature/<name>`.
+4. **Implement** the planned changes layer by layer. Commit per logical unit during the work (feat/fix/docs/test), each with an English message.
+5. **Write tests** for the new code **and** add regression tests for any bug fixed. Test data must be realistic (mirror the real file/system format), otherwise a green test can mask a real defect.
+6. **Verify** — the project builds cleanly and the full test suite is green, not only the new tests:
+   ```sh
+   cmake -S . -B build
+   cmake --build build
+   ctest --test-dir build
+   ```
+   Treat `-Wall -Wextra` warnings as findings to fix.
+7. **Request review** — run the reviewer over the diff of `feature/<name>` against `develop` (there is no remote/PR; the review is a diff review).
+8. **Apply** the required fixes from the review.
+9. **Commit** the review fixes with an English message.
+10. **Merge into `develop`** — `git switch develop`, `git merge --no-ff feature/<name>`, then delete the feature branch.
+11. **Update documentation** — refresh `docs/` (and this file) whenever behavior, architecture or the process itself changed.
+
 ## Language for commits and code (mandatory)
 
 - Commit messages — **English only**.
