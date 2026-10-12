@@ -17,6 +17,7 @@ private slots:
     void respectsDirectoryBoundary();
     void ignoresUnresolvableRoots();
     void statusForProjectFollowsTrust();
+    void caseInsensitiveOnWindows();
 };
 
 void TrustPolicyTest::untrustedWithoutRoots()
@@ -86,6 +87,30 @@ void TrustPolicyTest::statusForProjectFollowsTrust()
     QCOMPARE(policy.statusForProject(app), EnvStatus::Untrusted);
     policy.setTrustedRoots(QStringList{ app });
     QCOMPARE(policy.statusForProject(app), EnvStatus::Ok);
+}
+
+void TrustPolicyTest::caseInsensitiveOnWindows()
+{
+    // Regression for case folding on Windows: the same directory reached via a
+    // differently-cased path must be trusted there, while a genuinely distinct
+    // sibling (here a differently-cased name that is still a different dir on a
+    // case-sensitive FS) must not be confusable. Behavior is platform-dependent.
+    QTemporaryDir work;
+    QVERIFY(work.isValid());
+    const QString app = work.filePath(QStringLiteral("app"));
+    QVERIFY(QDir().mkpath(app));
+
+    const TrustPolicy policy(QStringList{ app });
+#ifdef Q_OS_WIN
+    // Case-insensitive filesystem: a path that differs only in segment case is
+    // the same directory and must be trusted.
+    QVERIFY(policy.isTrusted(work.filePath(QStringLiteral("APP"))));
+    // A genuinely different sibling must still not be trusted: "app" vs "appx".
+    QVERIFY(!policy.isTrusted(work.filePath(QStringLiteral("appx"))));
+#else
+    // Case-sensitive filesystem: a differently-cased sibling is a different dir.
+    QVERIFY(!policy.isTrusted(work.filePath(QStringLiteral("APP"))));
+#endif
 }
 
 QTEST_MAIN(TrustPolicyTest)

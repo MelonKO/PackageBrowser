@@ -7,9 +7,15 @@ namespace {
 
 // Normalize a path to forward slashes, collapse "." / ".." and keep a trailing
 // separator, so prefix comparison is stable across the platform's separator.
+// On Windows the filesystem is case-insensitive in practice, so comparison is
+// done in lower case; elsewhere (case-sensitive POSIX) the original case is
+// preserved because folding it would over-trust a different directory.
 QString normalizedPrefixPath(const QString& path)
 {
     QString p = QDir::fromNativeSeparators(QDir::cleanPath(path));
+#ifdef Q_OS_WIN
+    p = p.toLower();
+#endif
     if (!p.endsWith(QLatin1Char('/')))
         p += QLatin1Char('/');
     return p;
