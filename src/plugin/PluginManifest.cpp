@@ -336,33 +336,61 @@ std::optional<PluginManifest> PluginManifest::parse(const QString& text,
         }
     }
 
-    if (const toml::table* tool = tbl["tool"].as_table()) {
+    const toml::table* provider = tbl["provider"].as_table();
+    const toml::table* tool = tbl["tool"].as_table();
+    const bool hasProvider = provider != nullptr;
+    const bool hasTool = tool != nullptr;
+
+    if (hasProvider == hasTool) {
+        // Exactly one of `[provider]` or `[tool]` must be declared; `[[locator]]`
+        // belongs to the tool shape only.
+        setError(error, QStringLiteral("%1: declare exactly one of [provider] or [tool]")
+                            .arg(sourcePath));
+        return std::nullopt;
+    }
+
+    if (provider) {
+        m.m_isProcessProvider = true;
+        const QStringList exec = strArray(*provider, "exec");
+        if (exec.isEmpty()) {
+            setError(error, QStringLiteral("%1: [provider] exec must be a non-empty command")
+                                .arg(sourcePath));
+            return std::nullopt;
+        }
+        m.m_processProvider.program = exec.first();
+        m.m_processProvider.args = exec.mid(1);
+    }
+
+    if (tool) {
         m.m_tool.executables = strArray(*tool, "executables");
         m.m_tool.versionCmd = strArray(*tool, "version_cmd");
         m.m_tool.versionRegex = strValue(*tool, "version_regex");
         if (!checkTemplate(m.m_tool.versionCmd, QStringLiteral("tool.version_cmd"), error))
             return std::nullopt;
-    }
-    if (m.hasCapability(Capability::Detect) && m.m_tool.executables.isEmpty()) {
-        setError(error, QStringLiteral("%1: capability detect requires tool.executables").arg(sourcePath));
-        return std::nullopt;
-    }
-
-    const toml::array* locators = tbl["locator"].as_array();
-    if (!locators || locators->empty()) {
-        setError(error, QStringLiteral("%1: at least one [[locator]] is required").arg(sourcePath));
-        return std::nullopt;
-    }
-    for (size_t i = 0; i < locators->size(); ++i) {
-        const toml::table* lt = locators->at(i).as_table();
-        if (!lt) {
-            setError(error, QStringLiteral("%1: locator[%2] must be a table").arg(sourcePath).arg(i));
+        if (m.hasCapability(Capability::Detect) && m.m_tool.executables.isEmpty()) {
+            setError(error,
+                     QStringLiteral("%1: capability detect requires tool.executables").arg(sourcePath));
             return std::nullopt;
         }
-        auto parsed = parseLocator(*lt, int(i), error);
-        if (!parsed)
+    }
+
+    if (!m.m_isProcessProvider) {
+        const toml::array* locators = tbl["locator"].as_array();
+        if (!locators || locators->empty()) {
+            setError(error, QStringLiteral("%1: at least one [[locator]] is required").arg(sourcePath));
             return std::nullopt;
-        m.m_locators.append(*parsed);
+        }
+        for (size_t i = 0; i < locators->size(); ++i) {
+            const toml::table* lt = locators->at(i).as_table();
+            if (!lt) {
+                setError(error, QStringLiteral("%1: locator[%2] must be a table").arg(sourcePath).arg(i));
+                return std::nullopt;
+            }
+            auto parsed = parseLocator(*lt, int(i), error);
+            if (!parsed)
+                return std::nullopt;
+            m.m_locators.append(*parsed);
+        }
     }
 
     return m;

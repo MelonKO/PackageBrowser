@@ -71,6 +71,15 @@ struct ToolSpec {
     QString versionRegex;
 };
 
+// An external process provider declared with `[provider] exec` instead of
+// `[tool]` and `[[locator]]`. The host runs this command and speaks JSON-RPC
+// 2.0 over stdio; all IProvider operations become RPC calls. Relative program
+// paths resolve against the plugin's own directory.
+struct ProcessProviderSpec {
+    QString program;         // executable path or bare name (searched on PATH)
+    QStringList args;        // fixed arguments, e.g. ["vcpkg_provider.py"]
+};
+
 // A declarative plugin descriptor parsed from plugin.toml. Reading it needs no
 // plugin code, which is what lets a new CLI manager be added by dropping a
 // single manifest.
@@ -94,6 +103,11 @@ public:
     const QVector<LocatorSpec>& locators() const { return m_locators; }
     const QString& sourcePath() const { return m_sourcePath; }
 
+    // A manifest defines either the declarative `[tool]`+`[[locator]]` shape
+    // or an external `[provider] exec` process. Exactly one of the two is set.
+    const ProcessProviderSpec& processProvider() const { return m_processProvider; }
+    bool isProcessProvider() const { return m_isProcessProvider; }
+
 private:
     PluginId m_pluginId;
     int m_apiVersion = 0;
@@ -102,5 +116,7 @@ private:
     QStringList m_capabilities;
     ToolSpec m_tool;
     QVector<LocatorSpec> m_locators;
+    ProcessProviderSpec m_processProvider;
+    bool m_isProcessProvider = false;
     QString m_sourcePath;
 };

@@ -6,7 +6,6 @@
 #include <QJsonDocument>
 #include <QProcess>
 #include <QTimer>
-#include <QDebug>
 
 #include <functional>
 
@@ -55,7 +54,6 @@ bool JsonRpcClient::request(const QJsonObject& params, QString method, ResultCal
     frame.insert(QStringLiteral("params"), params);
     const QByteArray payload = QJsonDocument(frame).toJson(QJsonDocument::Compact);
     m_writeBuffer += frameMessage(payload);
-    qInfo().noquote() << "[rpc] sent request id=" << id << "method=" << method;
 
     if (!m_timeoutTimer->isActive())
         m_timeoutTimer->start();
@@ -138,7 +136,6 @@ void JsonRpcClient::onReadyRead()
 
 void JsonRpcClient::processInput(const QByteArray& bytes)
 {
-    qInfo().noquote() << "[rpc] read" << bytes.size() << "raw bytes";
     const QList<QByteArray> payloads = m_decoder.push(bytes);
     if (m_decoder.malformed()) {
         // Garbage on stdout: the channel is not a JSON-RPC peer any more.
@@ -170,11 +167,6 @@ void JsonRpcClient::processInput(const QByteArray& bytes)
 
 void JsonRpcClient::onProcessFinished(int /*exitCode*/, int /*status*/)
 {
-    const QByteArray err = m_process->readAllStandardError();
-    qInfo().noquote() << "[rpc] process finished, exitCode=" << m_process->exitCode()
-                      << "remaining pending=" << m_pending.size()
-                      << "stderr(size=" << err.size() << "):"
-                      << QString::fromLocal8Bit(err).replace(QLatin1Char('\n'), QLatin1String(" / "));
     // A child that answers then exits may deliver `finished` before the pipe
     // has flushed the last bytes to us, so drain once now, give the OS a short
     // window to push any remaining output, then drain again before failing the
@@ -190,8 +182,6 @@ void JsonRpcClient::onProcessFinished(int /*exitCode*/, int /*status*/)
 void JsonRpcClient::failPending(RpcError error)
 {
     m_lastError = error;
-    qInfo().noquote() << "[rpc] failPending error=" << int(error)
-                      << "pending=" << m_pending.size();
     const auto pending = m_pending;
     m_pending.clear();
     for (auto it = pending.constBegin(); it != pending.constEnd(); ++it) {
