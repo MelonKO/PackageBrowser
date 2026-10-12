@@ -21,6 +21,7 @@ function(pb_add_test name source)
 endfunction()
 
 pb_add_test(pb_core_tests test_core.cpp)
+pb_add_test(pb_process_runner_tests test_process_runner.cpp)
 pb_add_test(pb_plugin_host_tests test_plugin_host.cpp)
 pb_add_test(pb_toml_tests test_toml.cpp)
 pb_add_test(pb_manifest_tests test_manifest.cpp)
