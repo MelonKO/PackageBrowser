@@ -2,6 +2,7 @@
 
 #include "provider/BuiltinPipProvider.h"
 #include "provider/DeclarativeProvider.h"
+#include "provider/ProcessProvider.h"
 
 #include <QDir>
 #include <QDirIterator>
@@ -56,8 +57,29 @@ void PluginHost::load(const QString& pluginDir, const QStringList& disabledIds)
             // visible until the plugin is re-enabled; it is not marked stale.
             continue;
         }
-        m_providers.append(new DeclarativeProvider(std::move(*manifest)));
+        if (manifest->isProcessProvider())
+            m_providers.append(new ProcessProvider(std::move(*manifest)));
+        else
+            m_providers.append(new DeclarativeProvider(std::move(*manifest)));
     }
+}
+
+QVector<DeclarativeProvider*> PluginHost::declarativeProviders() const
+{
+    QVector<DeclarativeProvider*> out;
+    for (IProvider* p : m_providers)
+        if (auto* d = dynamic_cast<DeclarativeProvider*>(p))
+            out.append(d);
+    return out;
+}
+
+QVector<ProcessProvider*> PluginHost::processProviders() const
+{
+    QVector<ProcessProvider*> out;
+    for (IProvider* p : m_providers)
+        if (auto* pp = dynamic_cast<ProcessProvider*>(p))
+            out.append(pp);
+    return out;
 }
 
 bool PluginHost::hasDeclarativeProjects() const

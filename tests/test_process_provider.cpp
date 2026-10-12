@@ -19,6 +19,7 @@ private slots:
     void manifestRejectsProviderAndToolTogether();
     void detectListsToolInstances();
     void quarantinesAfterRepeatedFailures();
+    void vcpkgPluginReadsInstalledControl();
 
 private:
     static QString script();
@@ -249,6 +250,67 @@ sys.exit(0)
 
     provider.reenable();
     QCOMPARE(provider.state(), ProcessProviderState::Ready);
+}
+
+void ProcessProviderTest::vcpkgPluginReadsInstalledControl()
+{
+    const QString py = pythonBinary();
+    if (py.isEmpty())
+        QSKIP("no system python on PATH");
+
+    // Point the provider at the real in-repo vcpkg_provider.py and feed it a
+    // temp vcpkg root with one installed triplet and one CONTROL file.
+    const QString repoPlugin = QStringLiteral("C:/Projects/C++/PackageBrowser (Multitool)/plugins/vcpkg/vcpkg_provider.py");
+    if (!QFileInfo::exists(repoPlugin))
+        QSKIP("vcpkg_provider.py not in repo tree");
+
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString tripletDir = root.filePath(QStringLiteral("installed/x64-windows/zlib"));
+    QVERIFY(QDir().mkpath(tripletDir));
+    QFile control(QDir(tripletDir).filePath(QStringLiteral("CONTROL")));
+    QVERIFY(control.open(QIODevice::WriteOnly));
+    control.write("Package: zlib\nVersion: 1.3.1\nDescription: bar\n");
+    control.close();
+
+    QString text = providerManifest();
+    QString scriptForward = repoPlugin;
+    text.replace(QStringLiteral("__PLUGIN_SCRIPT__"), scriptForward.replace(QLatin1Char('\\'), QLatin1Char('/')));
+    QString pythonForward = py;
+    text.replace(QStringLiteral("__PYTHON__"), pythonForward.replace(QLatin1Char('\\'), QLatin1Char('/')));
+    QString error;
+    auto manifest = PluginManifest::parse(text, QStringLiteral("mock/plugin.toml"), &error);
+    QVERIFY2(manifest.has_value(), qPrintable(error));
+
+    // The plugin's detect()/locate() derive the root from VCPKG_ROOT.
+    QString rootForward = root.path();
+    qputenv("VCPKG_ROOT", rootForward.replace(QLatin1Char('\\'), QLatin1Char('/')).toUtf8());
+
+    ProcessProvider provider(*manifest);
+
+    const auto detected = provider.detect();
+    QVERIFY(detected.ok());
+    QVERIFY(detected.value.size() >= 1);
+
+    const auto located = provider.locate(detected.value[0]);
+    QVERIFY(located.ok());
+    bool foundTriplet = false;
+    for (const Environment& e : located.value)
+        if (e.root().endsWith(QStringLiteral("x64-windows")))
+            foundTriplet = true;
+    QVERIFY(foundTriplet);
+
+    // List the system env and confirm the CONTROL file was parsed.
+    for (const Environment& e : located.value) {
+        if (!e.root().endsWith(QStringLiteral("x64-windows")))
+            continue;
+        const auto listed = provider.list(e);
+        QVERIFY(listed.ok());
+        QCOMPARE(listed.value.size(), 1);
+        QCOMPARE(listed.value[0].nameNorm(), QStringLiteral("zlib"));
+        QCOMPARE(listed.value[0].version(), QStringLiteral("1.3.1"));
+        break;
+    }
 }
 
 QTEST_MAIN(ProcessProviderTest)

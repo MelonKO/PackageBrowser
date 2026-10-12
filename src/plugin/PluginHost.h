@@ -8,6 +8,8 @@
 #include <QVector>
 
 class IProvider;
+class DeclarativeProvider;
+class ProcessProvider;
 
 // Owns the set of live providers: the built-in pip provider plus one
 // DeclarativeProvider per valid plugin.toml found in the plugins directory.
@@ -29,6 +31,10 @@ public:
 
     // Live providers, built-in pip first. Owned by this host.
     const QVector<IProvider*>& providers() const { return m_providers; }
+
+    // Providers by type: used to inspect what load() instantiated.
+    QVector<DeclarativeProvider*> declarativeProviders() const;
+    QVector<ProcessProvider*> processProviders() const;
 
     // Providers that expose project markers / skip dirs for the scanner.
     bool hasDeclarativeProjects() const;

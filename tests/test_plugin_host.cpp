@@ -3,6 +3,7 @@
 #include "plugin/PluginHost.h"
 #include "provider/BuiltinPipProvider.h"
 #include "provider/DeclarativeProvider.h"
+#include "provider/ProcessProvider.h"
 
 #include <QDir>
 #include <QFile>
@@ -24,6 +25,7 @@ private slots:
     void ignoresMalformedManifestWithoutAborting();
     void loadIsIdempotent();
     void loadsOnlyFilesNamedPluginToml();
+    void loadsProcessProviderFromManifest();
 };
 
 static void writeFile(const QString& path, const char* data)
@@ -264,6 +266,31 @@ version = "version"
     const auto* npm = dynamic_cast<DeclarativeProvider*>(host.providers().at(1));
     QVERIFY(npm != nullptr);
     QCOMPARE(npm->pluginId().value(), QStringLiteral("builtin.npm"));
+}
+
+void PluginHostTest::loadsProcessProviderFromManifest()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    // A manifest declaring `[provider] exec` must be loaded as a ProcessProvider,
+    // not a DeclarativeProvider.
+    writeFile(QDir(dir.filePath(QStringLiteral("vcpkg"))).filePath(QStringLiteral("plugin.toml")),
+              "[plugin]\n"
+              "id = \"builtin.vcpkg\"\n"
+              "api = 1\n"
+              "name = \"vcpkg\"\n"
+              "ecosystem = \"cpp\"\n"
+              "capabilities = [\"detect\", \"locate\", \"list\"]\n"
+              "[provider]\n"
+              "exec = [\"python\", \"vcpkg_provider.py\"]\n");
+
+    PluginHost host;
+    host.load(dir.path());
+    // builtin.pip + the vcpkg process provider.
+    QCOMPARE(host.providers().size(), 2);
+    QCOMPARE(host.processProviders().size(), 1);
+    QCOMPARE(host.processProviders().first()->pluginId().value(),
+             QStringLiteral("builtin.vcpkg"));
 }
 
 QTEST_MAIN(PluginHostTest)
