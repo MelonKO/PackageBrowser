@@ -22,6 +22,11 @@ public:
     int scanMaxDepth() const;
     void setScanMaxDepth(int depth);
 
+    // Plugin ids a user has disabled. Disabled plugins are not loaded and their
+    // environments are skipped; data stays in the cache, marked out of date.
+    QStringList disabledPluginIds() const;
+    void setDisabledPluginIds(const QStringList& ids);
+
 private:
     class Impl;
     Impl* d;

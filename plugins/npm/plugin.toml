@@ -1,0 +1,36 @@
+[plugin]
+id = "builtin.npm"
+api = 1
+name = "npm"
+ecosystem = "javascript"
+capabilities = ["detect", "locate", "list"]
+
+[tool]
+executables = ["npm", "npm.cmd"]
+version_cmd = ["{exe}", "--version"]
+version_regex = "^(?P<version>\\S+)"
+
+# Global npm prefix. The environment root is the directory containing the npm
+# executable resolved from PATH; packages come from `npm ls -g`.
+[[locator]]
+scope = "system"
+from = "path"
+[locator.list_json]
+command = ["{exe}", "ls", "-g", "--json", "--depth=0"]
+array = "dependencies"
+name = "name"
+version = "version"
+ok_exit_codes = [0, 1]
+
+# Project-local npm environment: a directory is an environment when it has a
+# package.json and a node_modules container. Packages are read from files, so a
+# foreign project never executes npm.
+[[locator]]
+scope = "project"
+marker_file = "package.json"
+require_dir = "node_modules"
+[locator.list_files]
+dir = "node_modules"
+manifest = "package.json"
+name = "name"
+version = "version"
