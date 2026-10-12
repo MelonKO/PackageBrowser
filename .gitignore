@@ -1,4 +1,4 @@
-# --- Сборка (CMake) ---
+# --- Build (CMake) ---
 build/
 build-*/
 cmake-build-*/
@@ -12,7 +12,7 @@ CMakeUserPresets.json
 .vscode/
 *.user
 
-# --- Исполняемые и объектные файлы ---
+# --- Executable and object files ---
 *.exe
 *.dll
 *.so
@@ -29,15 +29,18 @@ qrc_*.cpp
 ui_*.h
 *.moc
 
-# --- Кэши и логи ---
+# --- Caches and logs ---
 *.log
 Thumbs.db
 .DS_Store
 
-# --- Локальные настройки и каталоги данных ---
+# --- Local settings and data directories ---
 *.db
 *.sqlite
 *.sqlite3
 
-# --- Исходная копия документации (в репозитории хранится в docs/) ---
+# --- Tool metadata (not part of the project) ---
+.gigatool/
+
+# --- Source copy of documentation (kept in repo under docs/) ---
 /Package Browser/

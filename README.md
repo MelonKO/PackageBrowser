@@ -1,22 +1,22 @@
 # Package Browser
 
-Desktop-приложение на **C++/Qt 6** для просмотра пакетов разных менеджеров (pip, npm, vcpkg) с ответом на вопрос «из какого окружения пакет: глобального или проектного».
+Desktop application in **C++/Qt 6** for browsing packages of different managers (pip, npm, vcpkg), answering "which environment does a package come from: global or project".
 
-## Состояние
+## Status
 
-Проект в начальной стадии: создан скелет (CMake + каркас ядра). Архитектура и roadmap — в [docs/](docs/).
+The project is at the initial stage: the skeleton (CMake + core scaffold) is created. Architecture and roadmap live in [docs/](docs/).
 
-## Структура
+## Structure
 
 ```
-src/       — ядро приложения (доменная модель, сервисы)
-tests/     — тесты (Qt Test)
-docs/      — архитектурная документация
+src/       — application core (domain model, services)
+tests/     — tests (Qt Test)
+docs/      — architecture documentation
 ```
 
-## Сборка
+## Build
 
-Требуется CMake ≥ 3.16 и Qt 6.
+Requires CMake >= 3.16 and Qt 6.
 
 ```sh
 cmake -S . -B build
@@ -24,6 +24,6 @@ cmake --build build
 ctest --test-dir build
 ```
 
-## Ветки
+## Branches
 
-Репозиторий ведётся по правилам git-flow: `main` (стабильные), `develop` (разработка), `feature/*`, `release/*`, `hotfix/*`. Подробнее — в [AGENTS.md](AGENTS.md).
+The repository follows git-flow rules: `main` (stable), `develop` (development), `feature/*`, `release/*`, `hotfix/*`. See [AGENTS.md](AGENTS.md) for details.
