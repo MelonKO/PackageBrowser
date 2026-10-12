@@ -21,6 +21,7 @@ set(PB_CORE_SOURCES
     domain/Ecosystem.cpp
     domain/PluginId.cpp
     normalization/Pep503Normalizer.cpp
+    plugin/PluginManifest.cpp
     provider/BuiltinPipProvider.cpp
     scanner/Scanner.cpp
     settings/AppSettings.cpp
@@ -38,6 +39,7 @@ set(PB_CORE_HEADERS
     domain/ToolInstance.h
     provider/IProvider.h
     provider/BuiltinPipProvider.h
+    plugin/PluginManifest.h
     normalization/Pep503Normalizer.h
     scanner/Scanner.h
     settings/AppSettings.h

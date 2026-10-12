@@ -22,6 +22,7 @@ endfunction()
 
 pb_add_test(pb_core_tests test_core.cpp)
 pb_add_test(pb_toml_tests test_toml.cpp)
+pb_add_test(pb_manifest_tests test_manifest.cpp)
 pb_add_test(pb_pep503_tests test_pep503.cpp)
 pb_add_test(pb_domain_tests test_domain.cpp)
 pb_add_test(pb_cache_tests test_cache.cpp)
