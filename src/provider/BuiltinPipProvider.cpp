@@ -62,12 +62,10 @@ std::optional<QByteArray> runProcess(const QString& exe, const QStringList& args
 
 QString normalizedKey(const QString& name) { return Pep503Normalizer::normalize(name); }
 
-// Parse the JSON lines emitted by `pip list --format=json`.
+// Parse the JSON array emitted by `pip list --format=json`.
 QVector<Installation> parsePipJson(const QByteArray& json, const EnvironmentId& envId)
 {
     QVector<Installation> out;
-    // Minimal robust parse that tolerates trailing commas.
-    QString errors;
     auto doc = QJsonDocument::fromJson(json);
     if (doc.isNull() || !doc.isArray())
         return out;
@@ -135,38 +133,6 @@ QVector<Installation> readVenvFromFiles(const QString& venvRoot, const Environme
     return out;
 }
 
-// Normalize a path to forward slashes and collapse "." / ".." so prefix
-// comparisons are stable across the platform's native separator, then compare
-// against a directory boundary.
-static QString normalizedPrefixPath(const QString& path)
-{
-    QString p = QDir::fromNativeSeparators(QDir::cleanPath(path));
-    if (!p.endsWith(QLatin1Char('/')))
-        p += QLatin1Char('/');
-    return p;
-}
-
-bool isTrusted(const QString& root, const QStringList& trustedRoots)
-{
-    const QString canonicalRoot = QFileInfo(root).canonicalFilePath();
-    if (canonicalRoot.isEmpty())
-        return false;
-    const QString rootKey = normalizedPrefixPath(canonicalRoot);
-    for (const QString& r : trustedRoots) {
-        if (r.isEmpty())
-            continue;
-        const QString canonicalTrusted = QFileInfo(r).canonicalFilePath();
-        if (canonicalTrusted.isEmpty())
-            continue;
-        // Same directory, or a genuine descendant (directory boundary), so
-        // that C:/work/app does not treat C:/work/apple as trusted.
-        const QString trustedKey = normalizedPrefixPath(canonicalTrusted);
-        if (rootKey == trustedKey || rootKey.startsWith(trustedKey))
-            return true;
-    }
-    return false;
-}
-
 } // namespace
 
 BuiltinPipProvider::BuiltinPipProvider() = default;
@@ -185,11 +151,6 @@ bool BuiltinPipProvider::hasCapability(Capability c) const
         return true;
     }
     return false;
-}
-
-void BuiltinPipProvider::setTrustedRoots(const QStringList& roots)
-{
-    m_trustedRoots = roots;
 }
 
 ProviderResult<QVector<ToolInstance>> BuiltinPipProvider::detect()
@@ -252,15 +213,18 @@ ProviderResult<QVector<Environment>> BuiltinPipProvider::locateAt(const QString&
         const QString envRoot = dir.canonicalPath();
         const auto envId = EnvironmentId::fromHashed(kPluginId.value(), envRoot);
         const QString toolId = QStringLiteral("builtin.pip:venv:%1").arg(envId.value());
-        const EnvStatus status = isTrusted(envRoot, m_trustedRoots) ? EnvStatus::Ok : EnvStatus::Untrusted;
-        result.value.append(
-            Environment(envId, kind(), Scope::Project, envRoot, toolId, QString(), status));
-        if (status == EnvStatus::Ok) {
-            m_envToolPaths.insert(envId.value(),
-                                  QFileInfo::exists(QDir(envRoot).filePath(QLatin1String("Scripts/pip.exe")))
-                                      ? QDir(envRoot).filePath(QLatin1String("Scripts/pip.exe"))
-                                      : QDir(envRoot).filePath(QLatin1String("bin/pip")));
-        }
+        // Record the candidate tool path: building it executes nothing, and
+        // list() uses it only when the environment is trusted.
+        const QString windowsTool = QDir(envRoot).filePath(QLatin1String("Scripts/pip.exe"));
+        m_envToolPaths.insert(envId.value(),
+                              QFileInfo::exists(windowsTool)
+                                  ? windowsTool
+                                  : QDir(envRoot).filePath(QLatin1String("bin/pip")));
+        // Safe default: no trust information reaches the provider, so a project
+        // environment is read by parsing files. The scanner upgrades it to Ok
+        // when its root is trusted (see TrustPolicy).
+        result.value.append(Environment(envId, kind(), Scope::Project, envRoot, toolId,
+                                        QString(), EnvStatus::Untrusted));
     }
     return result;
 }

@@ -10,6 +10,11 @@ Scanner::Scanner(IProvider* provider)
 {
 }
 
+void Scanner::setTrustPolicy(const TrustPolicy& policy)
+{
+    m_trust = policy;
+}
+
 void Scanner::scanGlobals(QVector<Environment>& envs, QVector<ToolInstance>& tools)
 {
     const auto detect = m_provider->detect();
@@ -64,7 +69,11 @@ void Scanner::scanRoots(const QStringList& roots,
 
         const auto loc = m_provider->locateAt(item.path);
         if (loc.ok() && !loc.value.isEmpty()) {
-            for (const Environment& env : loc.value) {
+            for (Environment env : loc.value) {
+                // The provider reports a project environment as Untrusted; the
+                // scanner owns the user's trust decision and upgrades it here.
+                if (env.scope() == Scope::Project)
+                    env.setStatus(m_trust.statusForProject(env.root()));
                 envs.append(env);
                 ++found;
             }

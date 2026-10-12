@@ -3,6 +3,7 @@
 #include "cache/Cache.h"
 #include "domain/EnvironmentId.h"
 #include "normalization/Pep503Normalizer.h"
+#include "trust/TrustPolicy.h"
 
 CatalogService::CatalogService(QObject* parent)
     : QObject(parent)
@@ -26,7 +27,7 @@ bool CatalogService::initialize(const QString& dbPath)
         return false;
     }
 
-    m_pip.setTrustedRoots(m_settings.trustedRoots());
+    m_scanner.setTrustPolicy(TrustPolicy(m_settings.trustedRoots()));
     return true;
 }
 

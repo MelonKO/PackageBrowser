@@ -25,6 +25,7 @@ set(PB_CORE_SOURCES
     provider/BuiltinPipProvider.cpp
     scanner/Scanner.cpp
     settings/AppSettings.cpp
+    trust/TrustPolicy.cpp
 )
 
 set(PB_CORE_HEADERS
@@ -43,6 +44,7 @@ set(PB_CORE_HEADERS
     normalization/Pep503Normalizer.h
     scanner/Scanner.h
     settings/AppSettings.h
+    trust/TrustPolicy.h
 )
 
 add_library(pb_core STATIC ${PB_CORE_SOURCES})

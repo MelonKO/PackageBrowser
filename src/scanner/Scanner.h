@@ -3,17 +3,24 @@
 #include "domain/Environment.h"
 #include "domain/ToolInstance.h"
 #include "provider/IProvider.h"
+#include "trust/TrustPolicy.h"
 
 #include <QStringList>
 #include <QVector>
 
 // Discovers environments: finds tools (detect), derives their global
 // environments (locate), and walks user-specified roots to find project-local
-// environments (locateAt). De-duplicates by canonical path.
+// environments (locateAt). De-duplicates by canonical path. The scanner owns
+// the trust decision: a project environment whose root is trusted becomes Ok,
+// otherwise it stays Untrusted and its tool is never executed.
 // See docs/Обнаружение окружений.md.
 class Scanner {
 public:
     explicit Scanner(IProvider* provider);
+
+    // Trust roots are applied to every project environment the scan finds.
+    void setTrustPolicy(const TrustPolicy& policy);
+    const TrustPolicy& trustPolicy() const { return m_trust; }
 
     // Detects tools on PATH and their global environments.
     void scanGlobals(QVector<Environment>& envs, QVector<ToolInstance>& tools);
@@ -27,4 +34,5 @@ public:
 
 private:
     IProvider* m_provider;
+    TrustPolicy m_trust;
 };
