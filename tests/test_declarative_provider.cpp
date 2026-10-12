@@ -5,6 +5,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QProcessEnvironment>
 #include <QTemporaryDir>
 #include <QTextStream>
 
@@ -20,6 +21,7 @@ private slots:
     void declaresCapabilitiesItCanHonour();
     void refusesToRunCommandInUntrustedProject();
     void reportsToolNotFoundWhenExecutableMissing();
+    void picksSingleToolAmongExecutableFallbacks();
     void exposesScannerHints();
 
 private:
@@ -226,6 +228,70 @@ void DeclarativeProviderTest::reportsToolNotFoundWhenExecutableMissing()
     const auto detected = provider.detect();
     QVERIFY(!detected.ok());
     QCOMPARE(detected.error, ProviderError::ToolNotFound);
+}
+
+void DeclarativeProviderTest::picksSingleToolAmongExecutableFallbacks()
+{
+    // A manifest may list several executable names as alternatives (npm vs
+    // npm.cmd). They are fallbacks for one manager, not multiple instances, so
+    // detect() must report a single tool even when several names resolve to
+    // distinct files in one directory.
+    const QString manifestText = QStringLiteral(R"toml(
+[plugin]
+id = "testkit.pkg"
+api = 1
+name = "testkit"
+ecosystem = "javascript"
+capabilities = ["detect", "locate", "list"]
+
+[tool]
+executables = ["testkit-fallback-a", "testkit-fallback-b", "testkit-fallback-missing"]
+
+[[locator]]
+scope = "system"
+from = "path"
+[locator.list_json]
+command = ["{exe}", "ls", "--json"]
+)toml");
+    auto manifest = PluginManifest::parse(manifestText, QStringLiteral("testkit/plugin.toml"),
+                                        nullptr);
+    QVERIFY(manifest.has_value());
+    DeclarativeProvider provider(*manifest);
+
+    // All three names share one directory on a temp-extended PATH; the two
+    // present ones must collapse into a single reported tool. On Windows an
+    // executable carries an extension (.cmd), elsewhere a bare name + exec bit.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+#ifdef Q_OS_WIN
+    const QStringList present = { QStringLiteral("testkit-fallback-a.cmd"),
+                                  QStringLiteral("testkit-fallback-b.cmd") };
+#else
+    const QStringList present = { QStringLiteral("testkit-fallback-a"),
+                                  QStringLiteral("testkit-fallback-b") };
+#endif
+    for (const QString& name : present) {
+        QFile f(dir.filePath(name));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("#!/bin/sh\necho 1.0.0\n");
+        f.close();
+#ifndef Q_OS_WIN
+        QVERIFY(QFile::setPermissions(dir.filePath(name), QFile::ReadOwner | QFile::ExeOwner));
+#endif
+    }
+
+    const QString pathSep = QDir::listSeparator();
+    const QStringList oldPath = QProcessEnvironment::systemEnvironment().value(
+                                    QStringLiteral("PATH")).split(pathSep, Qt::SkipEmptyParts);
+    qputenv("PATH", (dir.path() + pathSep + oldPath.join(pathSep)).toUtf8());
+#ifdef Q_OS_WIN
+    qputenv("PATHEXT", ".CMD;.COM;.EXE;.BAT");
+#endif
+
+    const auto detected = provider.detect();
+    QVERIFY(detected.ok());
+    QCOMPARE(detected.value.size(), 1);
+    QVERIFY(!detected.value[0].path().isEmpty());
 }
 
 void DeclarativeProviderTest::exposesScannerHints()
