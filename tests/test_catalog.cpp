@@ -18,7 +18,7 @@ void CatalogServiceTest::findPackageByNormalizedName()
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     CatalogService svc;
-    QVERIFY(svc.initialize(dir.filePath(QStringLiteral("cat.db"))));
+    QVERIFY(svc.initialize(dir.filePath(QStringLiteral("cat.db")), QString()));
 
     // No scan roots configured and no system pip guaranteed: with an empty
     // environment list, finding a package yields nothing.

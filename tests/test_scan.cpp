@@ -51,7 +51,7 @@ void ShellScanTest::locateVenvFromScannedRoot()
     const QString venvRoot = makeBareVenv(work.filePath(QStringLiteral("app/.venv")));
 
     BuiltinPipProvider provider;
-    Scanner scanner(&provider);
+    Scanner scanner(QVector<IProvider*>{ &provider });
     QVector<Environment> envs;
     QVector<ToolInstance> tools;
     scanner.scanRoots(QStringList{ work.filePath(QStringLiteral("app")) }, 3, {}, 50, envs);
@@ -98,7 +98,7 @@ void ShellScanTest::trustedRootUpgradesStatus()
     makeBareVenv(QDir(appRoot).filePath(QStringLiteral(".venv")));
 
     BuiltinPipProvider provider;
-    Scanner scanner(&provider);
+    Scanner scanner(QVector<IProvider*>{ &provider });
     scanner.setTrustPolicy(TrustPolicy(QStringList{ appRoot }));
 
     QVector<Environment> envs;
