@@ -28,6 +28,8 @@ set(PB_CORE_SOURCES
     provider/BuiltinPipProvider.cpp
     provider/DeclarativeProvider.cpp
     provider/JsonListParser.cpp
+    rpc/ContentLengthFraming.cpp
+    rpc/JsonRpcClient.cpp
     scanner/Scanner.cpp
     settings/AppSettings.cpp
     trust/TrustPolicy.cpp
@@ -47,6 +49,8 @@ set(PB_CORE_HEADERS
     provider/BuiltinPipProvider.h
     provider/DeclarativeProvider.h
     provider/JsonListParser.h
+    rpc/ContentLengthFraming.h
+    rpc/JsonRpcClient.h
     normalization/NameNormalizer.h
     process/ProcessRunner.h
     plugin/PluginHost.h
