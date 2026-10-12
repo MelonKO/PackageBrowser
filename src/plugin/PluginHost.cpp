@@ -15,6 +15,11 @@ PluginHost::~PluginHost()
 
 void PluginHost::load(const QString& pluginDir, const QStringList& disabledIds)
 {
+    // Re-loading must not accumulate providers from a previous call: drop the
+    // current set first, so invoking load() twice yields the same result.
+    qDeleteAll(m_providers);
+    m_providers.clear();
+
     // The built-in pip provider is always present, independent of any manifest.
     m_providers.append(new BuiltinPipProvider);
 
@@ -26,9 +31,9 @@ void PluginHost::load(const QString& pluginDir, const QStringList& disabledIds)
         return;
 
     // Each plugin lives in its own subfolder (plugins/<name>/plugin.toml), so
-    // recurse and pick up every manifest. Iteration is by file, subdirectories
-    // included. A user-disabled plugin is skipped entirely.
-    QDirIterator it(pluginDir, { QStringLiteral("*.toml") },
+    // recurse and load only files literally named "plugin.toml"; any other .toml
+    // (e.g. editor metadata) is ignored. A user-disabled plugin is skipped.
+    QDirIterator it(pluginDir, { QStringLiteral("plugin.toml") },
                     QDir::Files, QDirIterator::Subdirectories);
     while (it.hasNext()) {
         it.next();
@@ -40,8 +45,7 @@ void PluginHost::load(const QString& pluginDir, const QStringList& disabledIds)
         const QString text = ts.readAll();
         file.close();
 
-        QString error;
-        auto manifest = PluginManifest::parse(text, path, &error);
+        auto manifest = PluginManifest::parse(text, path, nullptr);
         if (!manifest) {
             // Rejected: skip, never abort the whole scan.
             continue;
