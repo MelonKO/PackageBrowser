@@ -10,10 +10,20 @@ QString findOnPath(const QString& exeName)
 {
     const QStringList paths = qEnvironmentVariable("PATH")
                                   .split(QDir::listSeparator(), Qt::SkipEmptyParts);
-    const char* exts[] = { "", ".exe" }; // the suffix only matters on Windows
+
+    // On Windows an executable may be a PATHEXT script (.cmd, .ps1, ...) with no
+    // matching .exe (e.g. npm/yarn shims). Enumerate PATHEXT so those are found
+    // like any other executable; elsewhere no extension is involved.
+    QStringList suffixes;
+    suffixes << QString(); // the bare name itself
+#ifdef Q_OS_WIN
+    suffixes << qEnvironmentVariable("PATHEXT")
+                   .split(QLatin1Char(';'), Qt::SkipEmptyParts);
+#endif
+
     for (const QString& dir : paths) {
-        for (const char* ext : exts) {
-            const QFileInfo fi(QDir(dir).filePath(exeName + QLatin1String(ext)));
+        for (const QString& ext : suffixes) {
+            const QFileInfo fi(QDir(dir).filePath(exeName + ext));
             if (fi.exists() && fi.isFile() && fi.isExecutable())
                 return fi.canonicalFilePath();
         }

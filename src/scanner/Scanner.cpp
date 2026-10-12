@@ -77,14 +77,26 @@ void Scanner::scanRoots(const QStringList& roots,
             continue;
         seen.insert(canonical);
 
-        bool isSkip = ignored.contains(canonical);
-        const QString leaf = dir.dirName();
-        for (const QString& sk : skipDirs) {
-            if (leaf == sk || canonical.contains(QLatin1Char('/') + sk + QLatin1Char('/')))
-                isSkip = true;
-        }
-        if (isSkip)
+        // A user-specified ignored root is skipped at any depth. The manifest
+        // skip dirs (e.g. node_modules) are only skipped below the scan root:
+        // the root itself is always walked, even if its name or a parent
+        // segment matches a skip dir, otherwise a user-supplied root inside a
+        // dependency container would be silently dropped.
+        if (ignored.contains(canonical))
             continue;
+
+        if (item.depth > 0) {
+            bool isSkip = false;
+            const QString leaf = dir.dirName();
+            for (const QString& sk : skipDirs) {
+                if (leaf == sk || canonical.contains(QLatin1Char('/') + sk + QLatin1Char('/'))) {
+                    isSkip = true;
+                    break;
+                }
+            }
+            if (isSkip)
+                continue;
+        }
 
         for (IProvider* provider : m_providers) {
             const auto loc = provider->locateAt(item.path);

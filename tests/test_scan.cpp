@@ -1,6 +1,8 @@
 #include <QtTest/QtTest>
 
+#include "plugin/PluginManifest.h"
 #include "provider/BuiltinPipProvider.h"
+#include "provider/DeclarativeProvider.h"
 #include "scanner/Scanner.h"
 #include "trust/TrustPolicy.h"
 
@@ -15,6 +17,9 @@ private slots:
     void locateVenvFromScannedRoot();
     void untrustedReadsFromFiles();
     void trustedRootUpgradesStatus();
+    void usesDeclarativeMarkersAndSkipDirs();
+    void systemEnvNotSubjectToTrust();
+    void scanRootMatchingSkipDirIsStillWalked();
 };
 
 // Build a minimal venv layout with a *.dist-info/METADATA under site-packages.
@@ -112,6 +117,156 @@ void ShellScanTest::trustedRootUpgradesStatus()
     // cleanly instead of silently falling back to parsing files.
     const auto result = provider.list(envs[0]);
     QVERIFY(!result.ok());
+}
+
+void ShellScanTest::usesDeclarativeMarkersAndSkipDirs()
+{
+    // A declarative provider declares its marker files and skip dirs; the
+    // scanner must apply them so foreign projects never walk node_modules and
+    // a directory that is itself an environment is not descended into.
+    const QString manifestText = QStringLiteral(R"toml(
+[plugin]
+id = "testkit.npm"
+api = 1
+name = "testkit-npm"
+ecosystem = "javascript"
+capabilities = ["detect", "locate", "list"]
+
+[tool]
+executables = ["testkit-not-present"]
+
+[[locator]]
+scope = "project"
+marker_file = "package.json"
+require_dir = "node_modules"
+[locator.list_files]
+dir = "node_modules"
+manifest = "package.json"
+name = "name"
+version = "version"
+)toml");
+    QString error;
+    auto manifest = PluginManifest::parse(manifestText, QStringLiteral("t/plugin.toml"), &error);
+    QVERIFY2(manifest.has_value(), qPrintable(error));
+    DeclarativeProvider provider(*manifest);
+
+    Scanner scanner(QVector<IProvider*>{ &provider });
+
+    QTemporaryDir work;
+    QVERIFY(work.isValid());
+    const QString appRoot = work.filePath(QStringLiteral("app"));
+    QVERIFY(QDir().mkpath(appRoot));
+    QVERIFY(QDir().mkpath(QDir(appRoot).filePath(QStringLiteral("node_modules/pkg"))));
+    QFile marker(QDir(appRoot).filePath(QStringLiteral("package.json")));
+    QVERIFY(marker.open(QIODevice::WriteOnly));
+    marker.close();
+
+    QVector<Environment> envs;
+    QVector<ToolInstance> tools;
+    scanner.scanRoots(QStringList{ appRoot }, 3, {}, 50, envs);
+
+    // One project environment is found (node_modules must not spawn a nested
+    // walk, and the marker root is itself an environment).
+    QCOMPARE(envs.size(), 1);
+    QCOMPARE(envs[0].scope(), Scope::Project);
+    QCOMPARE(envs[0].root(), QDir(appRoot).canonicalPath());
+}
+
+void ShellScanTest::systemEnvNotSubjectToTrust()
+{
+    // A system-scoped locator (from=path) yields a System environment with Ok
+    // status: trust gating only ever applies to project environments, never to
+    // a manager resolved from the user's PATH.
+    const QString manifestText = QStringLiteral(R"toml(
+[plugin]
+id = "testkit.sys"
+api = 1
+name = "testkit-sys"
+ecosystem = "javascript"
+capabilities = ["detect", "locate", "list"]
+
+[tool]
+executables = ["node-not-present-on-path"]
+
+[[locator]]
+scope = "system"
+from = "path"
+[locator.list_json]
+command = ["{exe}", "ls", "--json"]
+)toml");
+    QString error;
+    auto manifest = PluginManifest::parse(manifestText, QStringLiteral("sys/plugin.toml"), &error);
+    QVERIFY2(manifest.has_value(), qPrintable(error));
+    DeclarativeProvider provider(*manifest);
+
+    Scanner scanner(QVector<IProvider*>{ &provider });
+    // No trusted roots: the scanner would mark a project Untrusted. A system
+    // environment must stay Ok regardless.
+    const TrustPolicy noTrust; // default: empty trusted roots
+    scanner.setTrustPolicy(noTrust);
+
+    // Construct a fake ToolInstance like detect() would: empty PATH executable
+    // means we cannot rely on detect here, so drive locate() directly.
+    const ManagerKind kind = provider.kind();
+    const ToolInstance tool(kind, QStringLiteral("sys:tool"), QStringLiteral("C:/tools/node"), QStringLiteral("20.0.0"));
+    const auto located = provider.locate(tool);
+    QVERIFY(located.ok());
+    QCOMPARE(located.value.size(), 1);
+    QCOMPARE(located.value[0].scope(), Scope::System);
+    QCOMPARE(located.value[0].status(), EnvStatus::Ok);
+}
+
+void ShellScanTest::scanRootMatchingSkipDirIsStillWalked()
+{
+    // Regression: if a user-supplied scan root's own name matches a manifest
+    // skip dir (or a parent segment matches), the root must still be walked and
+    // reported, instead of being silently dropped.
+    const QString manifestText = QStringLiteral(R"toml(
+[plugin]
+id = "testkit.skip"
+api = 1
+name = "testkit-skip"
+ecosystem = "javascript"
+capabilities = ["detect", "locate", "list"]
+
+[tool]
+executables = ["node-not-present-on-path"]
+
+[[locator]]
+scope = "project"
+marker_file = "package.json"
+require_dir = "node_modules"
+[locator.list_files]
+dir = "node_modules"
+manifest = "package.json"
+name = "name"
+version = "version"
+)toml");
+    QString error;
+    auto manifest = PluginManifest::parse(manifestText, QStringLiteral("skip/plugin.toml"), &error);
+    QVERIFY2(manifest.has_value(), qPrintable(error));
+    DeclarativeProvider provider(*manifest);
+
+    // A user-supplied scan root living *inside* a directory whose name matches
+    // the skip dir (here: project under a real "node_modules") must still be
+    // walked and reported, instead of being silently skipped because a parent
+    // segment matches a skip dir.
+    QTemporaryDir base;
+    QVERIFY(base.isValid());
+    const QString root = base.filePath(QStringLiteral("node_modules/project"));
+    QVERIFY(QDir().mkpath(root));
+    QFile marker(QDir(root).filePath(QStringLiteral("package.json")));
+    QVERIFY(marker.open(QIODevice::WriteOnly));
+    marker.close();
+    QVERIFY(QDir().mkpath(QDir(root).filePath(QStringLiteral("node_modules"))));
+
+    Scanner scanner(QVector<IProvider*>{ &provider });
+    QVector<Environment> envs;
+    QVector<ToolInstance> tools;
+    scanner.scanRoots(QStringList{ root }, 3, {}, 50, envs);
+
+    // The root itself is walked even though a parent segment is a skip dir.
+    QCOMPARE(envs.size(), 1);
 }
 
 QTEST_MAIN(ShellScanTest)

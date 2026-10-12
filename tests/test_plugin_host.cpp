@@ -22,6 +22,8 @@ private slots:
     void aggregatesScannerHints();
     void skipsDisabledProvider();
     void ignoresMalformedManifestWithoutAborting();
+    void loadIsIdempotent();
+    void loadsOnlyFilesNamedPluginToml();
 };
 
 static void writeFile(const QString& path, const char* data)
@@ -181,6 +183,87 @@ version = "version"
     const auto* good = dynamic_cast<DeclarativeProvider*>(host.providers().at(1));
     QVERIFY(good != nullptr);
     QCOMPARE(good->pluginId().value(), QStringLiteral("builtin.good"));
+}
+
+void PluginHostTest::loadIsIdempotent()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    writeFile(dir.filePath(QStringLiteral("npm/plugin.toml")),
+              R"toml(
+[plugin]
+id = "builtin.npm"
+api = 1
+name = "npm"
+ecosystem = "javascript"
+capabilities = ["detect", "locate", "list"]
+
+[tool]
+executables = ["npm"]
+
+[[locator]]
+scope = "project"
+marker_file = "package.json"
+require_dir = "node_modules"
+[locator.list_files]
+dir = "node_modules"
+manifest = "package.json"
+name = "name"
+version = "version"
+)toml");
+
+    PluginHost host;
+    // Calling load() twice must not accumulate providers or leak the previous set.
+    host.load(dir.path());
+    const int firstSize = host.providers().size();
+    QVERIFY(firstSize >= 2);
+    host.load(dir.path());
+    QCOMPARE(host.providers().size(), firstSize);
+    // The built-in pip provider is still present exactly once.
+    int pipCount = 0;
+    for (IProvider* p : host.providers())
+        if (dynamic_cast<BuiltinPipProvider*>(p))
+            ++pipCount;
+    QCOMPARE(pipCount, 1);
+}
+
+void PluginHostTest::loadsOnlyFilesNamedPluginToml()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    // A plugin in its own folder...
+    writeFile(dir.filePath(QStringLiteral("npm/plugin.toml")),
+              R"toml(
+[plugin]
+id = "builtin.npm"
+api = 1
+name = "npm"
+ecosystem = "javascript"
+capabilities = ["detect", "locate", "list"]
+
+[tool]
+executables = ["npm"]
+
+[[locator]]
+scope = "project"
+marker_file = "package.json"
+require_dir = "node_modules"
+[locator.list_files]
+dir = "node_modules"
+manifest = "package.json"
+name = "name"
+version = "version"
+)toml");
+    // ...and an unrelated .toml (e.g. editor metadata) that must NOT be loaded.
+    writeFile(dir.filePath(QStringLiteral("misc/notes.toml")), "[something]\nkey = 1");
+
+    PluginHost host;
+    host.load(dir.path());
+    // pip provider + exactly the npm declarative provider.
+    QCOMPARE(host.providers().size(), 2);
+    const auto* npm = dynamic_cast<DeclarativeProvider*>(host.providers().at(1));
+    QVERIFY(npm != nullptr);
+    QCOMPARE(npm->pluginId().value(), QStringLiteral("builtin.npm"));
 }
 
 QTEST_MAIN(PluginHostTest)

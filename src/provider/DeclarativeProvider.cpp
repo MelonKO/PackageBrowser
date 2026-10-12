@@ -28,6 +28,8 @@ QString toolIdFor(const PluginId& pluginId, const QString& path)
 
 // Substitute the whitelisted placeholders. The manifest layer already rejected
 // anything outside the whitelist, so this cannot inject arbitrary text.
+// {exe} and {tool} resolve to the same value: the tool is whichever executable
+// was resolved for this provider (from PATH or from the environment root).
 QStringList substitute(const QStringList& tmpl, const QString& tool, const QString& root)
 {
     QStringList out;
@@ -256,7 +258,10 @@ const LocatorSpec* DeclarativeProvider::locatorFor(const Environment& env) const
     }
 
     // Fallback for an environment restored from the cache: match on scope, and
-    // for a project environment also on its marker file being present.
+    // for a project environment also on its marker file being present. For a
+    // global (system/user) environment only from-path locators are candidates,
+    // because locate() derives global environments exclusively from a tool on
+    // PATH; a non-path locator of the same scope would be a wrong guess.
     for (const LocatorSpec& locator : m_manifest.locators()) {
         if (locator.scope != env.scope())
             continue;
@@ -264,7 +269,7 @@ const LocatorSpec* DeclarativeProvider::locatorFor(const Environment& env) const
             if (!locator.markerFile.isEmpty()
                 && QFileInfo::exists(QDir(env.root()).filePath(locator.markerFile)))
                 return &locator;
-        } else {
+        } else if (locator.fromPath) {
             return &locator;
         }
     }
