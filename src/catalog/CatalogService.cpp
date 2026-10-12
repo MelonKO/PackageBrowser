@@ -2,13 +2,15 @@
 
 #include "cache/Cache.h"
 #include "domain/EnvironmentId.h"
-#include "normalization/Pep503Normalizer.h"
+#include "normalization/NameNormalizer.h"
+#include "provider/IProvider.h"
+#include "trust/TrustPolicy.h"
+
+#include <QHash>
 
 CatalogService::CatalogService(QObject* parent)
     : QObject(parent)
     , m_settings()
-    , m_pip()
-    , m_scanner(&m_pip)
 {
 }
 
@@ -17,7 +19,7 @@ CatalogService::~CatalogService()
     delete m_cache;
 }
 
-bool CatalogService::initialize(const QString& dbPath)
+bool CatalogService::initialize(const QString& dbPath, const QString& pluginDir)
 {
     m_cache = new Cache(dbPath);
     if (!m_cache->open()) {
@@ -26,7 +28,12 @@ bool CatalogService::initialize(const QString& dbPath)
         return false;
     }
 
-    m_pip.setTrustedRoots(m_settings.trustedRoots());
+    // Load providers (built-in pip + one per valid plugin.toml), then build the
+    // scanner over them. Trust roots are shared across every provider; disabled
+    // plugins are skipped entirely.
+    m_host.load(pluginDir, m_settings.disabledPluginIds());
+    m_scanner = Scanner(m_host.providers());
+    m_scanner.setTrustPolicy(TrustPolicy(m_settings.trustedRoots()));
     return true;
 }
 
@@ -46,11 +53,22 @@ QVector<Installation> CatalogService::findPackage(const QString& name) const
 {
     if (!m_cache)
         return {};
-    const QString norm = Pep503Normalizer::normalize(name);
+
+    // Normalization rules belong to the ecosystem of each environment, so the
+    // query is normalized per-environment (Python PEP 503, JS/vcpkg lowercase).
     QVector<Installation> out;
-    for (const Installation& inst : m_cache->allInstallations())
-        if (inst.nameNorm() == norm)
+    const QVector<Installation> all = m_cache->allInstallations();
+    // Cache the ecosystem lookup: envId -> ecosystem, so the scan is O(n).
+    QHash<QString, Ecosystem> ecoForEnv;
+    for (const Environment& env : m_environments)
+        ecoForEnv.insert(env.id().value(), env.kind().ecosystem());
+
+    for (const Installation& inst : all) {
+        const Ecosystem eco = ecoForEnv.value(
+            inst.envId().value(), Ecosystem::Python); // default: Python (legacy)
+        if (inst.nameNorm() == normalizeName(eco, name))
             out.append(inst);
+    }
     return out;
 }
 
@@ -100,11 +118,29 @@ void CatalogService::normalizeAndStoreInstallations(const Environment& env)
     if (!m_cache)
         return;
 
-    // If the environment is untrusted, the provider reads files; otherwise it
-    // may run pip. Either way it returns the package list to cache.
-    const auto result = m_pip.list(env);
-    if (!result.ok()) {
+    // Find the provider that owns this environment's manager kind.
+    IProvider* provider = nullptr;
+    for (IProvider* p : m_host.providers()) {
+        if (p->kind() == env.kind()) {
+            provider = p;
+            break;
+        }
+    }
+    if (!provider) {
         m_cache->updateEnvironmentStatus(env.id(), EnvStatus::Error);
+        return;
+    }
+
+    // If the environment is untrusted, the provider reads files; otherwise it
+    // may run the manager. Either way it returns the package list to cache.
+    const auto result = provider->list(env);
+    if (!result.ok()) {
+        // An untrusted project without a file-based fallback is refused, not
+        // broken: keep the meaningful Untrusted status instead of Error.
+        const EnvStatus status = result.error == ProviderError::Untrusted
+            ? EnvStatus::Untrusted
+            : EnvStatus::Error;
+        m_cache->updateEnvironmentStatus(env.id(), status);
         return;
     }
     m_cache->replaceInstallations(env.id(), result.value);

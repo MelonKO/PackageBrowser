@@ -21,10 +21,16 @@ function(pb_add_test name source)
 endfunction()
 
 pb_add_test(pb_core_tests test_core.cpp)
+pb_add_test(pb_plugin_host_tests test_plugin_host.cpp)
+pb_add_test(pb_toml_tests test_toml.cpp)
+pb_add_test(pb_manifest_tests test_manifest.cpp)
 pb_add_test(pb_pep503_tests test_pep503.cpp)
 pb_add_test(pb_domain_tests test_domain.cpp)
 pb_add_test(pb_cache_tests test_cache.cpp)
 pb_add_test(pb_scan_tests test_scan.cpp)
+pb_add_test(pb_trust_tests test_trust.cpp)
+pb_add_test(pb_json_list_parser_tests test_json_list_parser.cpp)
+pb_add_test(pb_declarative_provider_tests test_declarative_provider.cpp)
 pb_add_test(pb_catalog_tests test_catalog.cpp)
 
 # UI model tests require the app target (Widgets), so they only build with the UI.

@@ -53,3 +53,13 @@ void AppSettings::setScanMaxDepth(int depth)
 {
     d->settings.setValue(QStringLiteral("maxDepth"), depth);
 }
+
+QStringList AppSettings::disabledPluginIds() const
+{
+    return d->settings.value(QStringLiteral("disabledPlugins")).toStringList();
+}
+
+void AppSettings::setDisabledPluginIds(const QStringList& ids)
+{
+    d->settings.setValue(QStringLiteral("disabledPlugins"), ids);
+}

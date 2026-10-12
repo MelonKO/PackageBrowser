@@ -21,9 +21,16 @@ set(PB_CORE_SOURCES
     domain/Ecosystem.cpp
     domain/PluginId.cpp
     normalization/Pep503Normalizer.cpp
+    normalization/NameNormalizer.cpp
+    plugin/PluginHost.cpp
+    plugin/PluginManifest.cpp
+    process/ProcessRunner.cpp
     provider/BuiltinPipProvider.cpp
+    provider/DeclarativeProvider.cpp
+    provider/JsonListParser.cpp
     scanner/Scanner.cpp
     settings/AppSettings.cpp
+    trust/TrustPolicy.cpp
 )
 
 set(PB_CORE_HEADERS
@@ -38,9 +45,16 @@ set(PB_CORE_HEADERS
     domain/ToolInstance.h
     provider/IProvider.h
     provider/BuiltinPipProvider.h
+    provider/DeclarativeProvider.h
+    provider/JsonListParser.h
+    normalization/NameNormalizer.h
+    process/ProcessRunner.h
+    plugin/PluginHost.h
+    plugin/PluginManifest.h
     normalization/Pep503Normalizer.h
     scanner/Scanner.h
     settings/AppSettings.h
+    trust/TrustPolicy.h
 )
 
 add_library(pb_core STATIC ${PB_CORE_SOURCES})
@@ -50,6 +64,9 @@ target_include_directories(pb_core PUBLIC
 )
 
 target_link_libraries(pb_core PRIVATE Qt6::Core Qt6::Sql)
+
+# toml++ is header-only; PUBLIC so tests can parse manifests too.
+target_link_libraries(pb_core PUBLIC tomlplusplus::tomlplusplus)
 
 target_compile_options(pb_core PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4>

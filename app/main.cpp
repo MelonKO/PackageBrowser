@@ -13,7 +13,9 @@ int main(int argc, char* argv[])
 
     CatalogService catalog;
     const QString dbPath = QDir::temp().filePath(QStringLiteral("pb_cache.db"));
-    if (!catalog.initialize(dbPath))
+    const QString pluginDir = QCoreApplication::applicationDirPath()
+        + QStringLiteral("/plugins");
+    if (!catalog.initialize(dbPath, pluginDir))
         return 1;
 
     MainWindow window(&catalog);

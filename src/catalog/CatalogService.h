@@ -4,7 +4,7 @@
 #include "domain/Installation.h"
 #include "domain/ManagerKind.h"
 #include "domain/ToolInstance.h"
-#include "provider/BuiltinPipProvider.h"
+#include "plugin/PluginHost.h"
 #include "scanner/Scanner.h"
 #include "settings/AppSettings.h"
 
@@ -29,8 +29,8 @@ public:
     CatalogService(const CatalogService&) = delete;
     CatalogService& operator=(const CatalogService&) = delete;
 
-    // One-time initialization: open the cache and load settings.
-    bool initialize(const QString& dbPath);
+    // One-time initialization: open the cache, load settings, load plugins.
+    bool initialize(const QString& dbPath, const QString& pluginDir);
 
     // Public read API (UI calls these and connects to signals).
     QVector<Environment> listEnvironments() const;
@@ -59,8 +59,8 @@ private:
 
     AppSettings m_settings;
     Cache* m_cache = nullptr;
-    BuiltinPipProvider m_pip;
-    Scanner m_scanner;
+    PluginHost m_host;
+    Scanner m_scanner{ QVector<IProvider*>{} };
 
     QVector<Environment> m_environments; // in-memory view used by the UI
     QVector<ToolInstance> m_tools;

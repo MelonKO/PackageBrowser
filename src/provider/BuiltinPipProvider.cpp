@@ -1,6 +1,7 @@
 #include "provider/BuiltinPipProvider.h"
 
 #include "normalization/Pep503Normalizer.h"
+#include "process/ProcessRunner.h"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -23,51 +24,12 @@ const PluginId kPluginId(QStringLiteral("builtin.pip"));
 
 ManagerKind kind() { return ManagerKind(kPluginId, Ecosystem::Python); }
 
-// Locate an executable by name on PATH. On Windows, prefer resolving from the
-// same directory (handles both bare names and .exe extensions) so that
-// reparse-point shims in WindowsApps are found like any other executable.
-QString findOnPath(const QString& exeName)
-{
-    const QStringList paths = qEnvironmentVariable("PATH")
-                                  .split(QDir::listSeparator(), Qt::SkipEmptyParts);
-    const char* exts[] = { "", ".exe" }; // ... only relevant on Windows
-    for (const QString& dir : paths) {
-        for (const char* ext : exts) {
-            const QFileInfo fi(QDir(dir).filePath(exeName + QLatin1String(ext)));
-            if (fi.exists() && fi.isFile() && fi.isExecutable())
-                return fi.canonicalFilePath();
-        }
-    }
-    return QString();
-}
-
-// Run a command with a sane timeout and return stdout on success.
-std::optional<QByteArray> runProcess(const QString& exe, const QStringList& args)
-{
-    QProcess proc;
-    proc.setProcessChannelMode(QProcess::SeparateChannels);
-    proc.start(exe, args);
-    if (!proc.waitForStarted(3000))
-        return std::nullopt;
-    if (!proc.waitForFinished(15000)) {
-        // Terminate a hung child rather than leaving it running.
-        proc.kill();
-        proc.waitForFinished(3000);
-        return std::nullopt;
-    }
-    if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0)
-        return std::nullopt;
-    return proc.readAllStandardOutput();
-}
-
 QString normalizedKey(const QString& name) { return Pep503Normalizer::normalize(name); }
 
-// Parse the JSON lines emitted by `pip list --format=json`.
+// Parse the JSON array emitted by `pip list --format=json`.
 QVector<Installation> parsePipJson(const QByteArray& json, const EnvironmentId& envId)
 {
     QVector<Installation> out;
-    // Minimal robust parse that tolerates trailing commas.
-    QString errors;
     auto doc = QJsonDocument::fromJson(json);
     if (doc.isNull() || !doc.isArray())
         return out;
@@ -135,38 +97,6 @@ QVector<Installation> readVenvFromFiles(const QString& venvRoot, const Environme
     return out;
 }
 
-// Normalize a path to forward slashes and collapse "." / ".." so prefix
-// comparisons are stable across the platform's native separator, then compare
-// against a directory boundary.
-static QString normalizedPrefixPath(const QString& path)
-{
-    QString p = QDir::fromNativeSeparators(QDir::cleanPath(path));
-    if (!p.endsWith(QLatin1Char('/')))
-        p += QLatin1Char('/');
-    return p;
-}
-
-bool isTrusted(const QString& root, const QStringList& trustedRoots)
-{
-    const QString canonicalRoot = QFileInfo(root).canonicalFilePath();
-    if (canonicalRoot.isEmpty())
-        return false;
-    const QString rootKey = normalizedPrefixPath(canonicalRoot);
-    for (const QString& r : trustedRoots) {
-        if (r.isEmpty())
-            continue;
-        const QString canonicalTrusted = QFileInfo(r).canonicalFilePath();
-        if (canonicalTrusted.isEmpty())
-            continue;
-        // Same directory, or a genuine descendant (directory boundary), so
-        // that C:/work/app does not treat C:/work/apple as trusted.
-        const QString trustedKey = normalizedPrefixPath(canonicalTrusted);
-        if (rootKey == trustedKey || rootKey.startsWith(trustedKey))
-            return true;
-    }
-    return false;
-}
-
 } // namespace
 
 BuiltinPipProvider::BuiltinPipProvider() = default;
@@ -187,17 +117,12 @@ bool BuiltinPipProvider::hasCapability(Capability c) const
     return false;
 }
 
-void BuiltinPipProvider::setTrustedRoots(const QStringList& roots)
-{
-    m_trustedRoots = roots;
-}
-
 ProviderResult<QVector<ToolInstance>> BuiltinPipProvider::detect()
 {
     ProviderResult<QVector<ToolInstance>> result;
-    QString pipPath = findOnPath(QStringLiteral("pip"));
+    QString pipPath = pb::findOnPath(QStringLiteral("pip"));
     if (pipPath.isEmpty())
-        pipPath = findOnPath(QStringLiteral("pip3"));
+        pipPath = pb::findOnPath(QStringLiteral("pip3"));
 
     if (pipPath.isEmpty()) {
         result.error = ProviderError::ToolNotFound;
@@ -205,9 +130,10 @@ ProviderResult<QVector<ToolInstance>> BuiltinPipProvider::detect()
     }
 
     QString version;
-    if (auto out = runProcess(pipPath, { QStringLiteral("--version") }); out) {
+    const pb::ProcessResult versionRun = pb::runProcess(pipPath, { QStringLiteral("--version") });
+    if (versionRun.finished && versionRun.exitCode == 0) {
         const QRegularExpression re(QStringLiteral("pip (\\S+)"));
-        const auto m = re.match(QString::fromUtf8(*out));
+        const auto m = re.match(QString::fromUtf8(versionRun.stdOut));
         if (m.hasMatch())
             version = m.captured(1);
     }
@@ -252,15 +178,18 @@ ProviderResult<QVector<Environment>> BuiltinPipProvider::locateAt(const QString&
         const QString envRoot = dir.canonicalPath();
         const auto envId = EnvironmentId::fromHashed(kPluginId.value(), envRoot);
         const QString toolId = QStringLiteral("builtin.pip:venv:%1").arg(envId.value());
-        const EnvStatus status = isTrusted(envRoot, m_trustedRoots) ? EnvStatus::Ok : EnvStatus::Untrusted;
-        result.value.append(
-            Environment(envId, kind(), Scope::Project, envRoot, toolId, QString(), status));
-        if (status == EnvStatus::Ok) {
-            m_envToolPaths.insert(envId.value(),
-                                  QFileInfo::exists(QDir(envRoot).filePath(QLatin1String("Scripts/pip.exe")))
-                                      ? QDir(envRoot).filePath(QLatin1String("Scripts/pip.exe"))
-                                      : QDir(envRoot).filePath(QLatin1String("bin/pip")));
-        }
+        // Record the candidate tool path: building it executes nothing, and
+        // list() uses it only when the environment is trusted.
+        const QString windowsTool = QDir(envRoot).filePath(QLatin1String("Scripts/pip.exe"));
+        m_envToolPaths.insert(envId.value(),
+                              QFileInfo::exists(windowsTool)
+                                  ? windowsTool
+                                  : QDir(envRoot).filePath(QLatin1String("bin/pip")));
+        // Safe default: no trust information reaches the provider, so a project
+        // environment is read by parsing files. The scanner upgrades it to Ok
+        // when its root is trusted (see TrustPolicy).
+        result.value.append(Environment(envId, kind(), Scope::Project, envRoot, toolId,
+                                        QString(), EnvStatus::Untrusted));
     }
     return result;
 }
@@ -330,9 +259,9 @@ ProviderResult<QVector<Installation>> BuiltinPipProvider::list(const Environment
         }
     } else if (pipPath.isEmpty()) {
         // System pip: fall back to searching PATH only for System-scope envs.
-        pipPath = findOnPath(QStringLiteral("pip"));
+        pipPath = pb::findOnPath(QStringLiteral("pip"));
         if (pipPath.isEmpty())
-            pipPath = findOnPath(QStringLiteral("pip3"));
+            pipPath = pb::findOnPath(QStringLiteral("pip3"));
     }
 
     if (pipPath.isEmpty()) {
@@ -340,12 +269,13 @@ ProviderResult<QVector<Installation>> BuiltinPipProvider::list(const Environment
         return result;
     }
 
-    auto out = runProcess(pipPath, { QStringLiteral("list"), QStringLiteral("--format=json") });
-    if (!out) {
+    const pb::ProcessResult listRun =
+        pb::runProcess(pipPath, { QStringLiteral("list"), QStringLiteral("--format=json") });
+    if (!listRun.finished || listRun.exitCode != 0) {
         result.error = ProviderError::EnvBroken;
         result.complete = false;
         return result;
     }
-    result.value = parsePipJson(*out, env.id());
+    result.value = parsePipJson(listRun.stdOut, env.id());
     return result;
 }

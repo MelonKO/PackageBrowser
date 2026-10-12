@@ -5,22 +5,29 @@
 #include <QRegularExpression>
 #include <QSet>
 
-Scanner::Scanner(IProvider* provider)
-    : m_provider(provider)
+Scanner::Scanner(const QVector<IProvider*>& providers)
+    : m_providers(providers)
 {
+}
+
+void Scanner::setTrustPolicy(const TrustPolicy& policy)
+{
+    m_trust = policy;
 }
 
 void Scanner::scanGlobals(QVector<Environment>& envs, QVector<ToolInstance>& tools)
 {
-    const auto detect = m_provider->detect();
-    if (!detect.ok())
-        return;
+    for (IProvider* provider : m_providers) {
+        const auto detect = provider->detect();
+        if (!detect.ok())
+            continue;
 
-    for (const ToolInstance& tool : detect.value) {
-        tools.append(tool);
-        const auto loc = m_provider->locate(tool);
-        if (loc.ok())
-            envs.append(loc.value);
+        for (const ToolInstance& tool : detect.value) {
+            tools.append(tool);
+            const auto loc = provider->locate(tool);
+            if (loc.ok())
+                envs.append(loc.value);
+        }
     }
 }
 
@@ -30,6 +37,20 @@ void Scanner::scanRoots(const QStringList& roots,
                         int maxEnvironments,
                         QVector<Environment>& envs)
 {
+    // Aggregated scanner hints from every provider: directories that carry an
+    // environment marker must not be descended into, and skip dirs (e.g.
+    // node_modules) are never walked for nested environments.
+    QStringList projectMarkers;
+    QStringList skipDirs;
+    for (const IProvider* provider : m_providers) {
+        for (const QString& m : provider->projectMarkers())
+            if (!projectMarkers.contains(m))
+                projectMarkers.append(m);
+        for (const QString& d : provider->skipDirs())
+            if (!skipDirs.contains(d))
+                skipDirs.append(d);
+    }
+
     QSet<QString> ignored;
     for (const QString& r : ignoreRoots) {
         const QString c = QFileInfo(r).canonicalFilePath();
@@ -56,17 +77,26 @@ void Scanner::scanRoots(const QStringList& roots,
             continue;
         seen.insert(canonical);
 
-        // Skip explicitly ignored roots and nested dependency dirs.
-        if (ignored.contains(canonical)
-            || canonical.contains(QStringLiteral("/node_modules/"))
-            || canonical.endsWith(QStringLiteral("/node_modules")))
+        bool isSkip = ignored.contains(canonical);
+        const QString leaf = dir.dirName();
+        for (const QString& sk : skipDirs) {
+            if (leaf == sk || canonical.contains(QLatin1Char('/') + sk + QLatin1Char('/')))
+                isSkip = true;
+        }
+        if (isSkip)
             continue;
 
-        const auto loc = m_provider->locateAt(item.path);
-        if (loc.ok() && !loc.value.isEmpty()) {
-            for (const Environment& env : loc.value) {
-                envs.append(env);
-                ++found;
+        for (IProvider* provider : m_providers) {
+            const auto loc = provider->locateAt(item.path);
+            if (loc.ok() && !loc.value.isEmpty()) {
+                for (Environment env : loc.value) {
+                    // The provider reports a project environment as Untrusted;
+                    // the scanner owns the user's trust decision and upgrades it.
+                    if (env.scope() == Scope::Project)
+                        env.setStatus(m_trust.statusForProject(env.root()));
+                    envs.append(env);
+                    ++found;
+                }
             }
         }
 
@@ -75,16 +105,20 @@ void Scanner::scanRoots(const QStringList& roots,
         if (item.depth >= maxDepth)
             continue;
 
-        // Do not descend into a venv or node_modules when searching nested
-        // environments, otherwise the walk visits thousands of foreign packages.
-        // The marker at this directory has already been collected by locateAt.
-        if (dir.exists(QLatin1String("pyvenv.cfg"))
-            || dir.exists(QLatin1String("node_modules")))
+        // Do not descend into a directory that is itself an environment (it
+        // carries a marker) or that is a dependency container the manifest
+        // told us to skip. The marker has already been collected by locateAt.
+        bool isEnv = false;
+        for (const QString& marker : projectMarkers)
+            if (dir.exists(marker))
+                isEnv = true;
+        if (isEnv)
             continue;
 
-        const QStringList subdirs =
-            dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)
-                .filter(QRegularExpression(QStringLiteral("^(?!node_modules$|__pycache__$).*$")));
+        QStringList subdirs = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+        for (const QString& sk : skipDirs)
+            subdirs.removeAll(sk);
+        subdirs.removeAll(QStringLiteral("__pycache__"));
         for (const QString& sub : subdirs) {
             const QString subPath = dir.filePath(sub);
             if (!QFileInfo(subPath).isSymLink())

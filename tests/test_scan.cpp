@@ -2,6 +2,7 @@
 
 #include "provider/BuiltinPipProvider.h"
 #include "scanner/Scanner.h"
+#include "trust/TrustPolicy.h"
 
 #include <QTemporaryDir>
 #include <QDir>
@@ -13,7 +14,7 @@ class ShellScanTest : public QObject
 private slots:
     void locateVenvFromScannedRoot();
     void untrustedReadsFromFiles();
-    void trustedRunsTool();
+    void trustedRootUpgradesStatus();
 };
 
 // Build a minimal venv layout with a *.dist-info/METADATA under site-packages.
@@ -50,7 +51,7 @@ void ShellScanTest::locateVenvFromScannedRoot()
     const QString venvRoot = makeBareVenv(work.filePath(QStringLiteral("app/.venv")));
 
     BuiltinPipProvider provider;
-    Scanner scanner(&provider);
+    Scanner scanner(QVector<IProvider*>{ &provider });
     QVector<Environment> envs;
     QVector<ToolInstance> tools;
     scanner.scanRoots(QStringList{ work.filePath(QStringLiteral("app")) }, 3, {}, 50, envs);
@@ -87,24 +88,29 @@ void ShellScanTest::untrustedReadsFromFiles()
     QCOMPARE(result.value[0].version(), QStringLiteral("2.31.0"));
 }
 
-void ShellScanTest::trustedRunsTool()
+void ShellScanTest::trustedRootUpgradesStatus()
 {
-    // Without a real pip executable in a trusted root we cannot verify running;
-    // at minimum it must not crash and should report an error rather than files.
+    // The provider reports a project environment as Untrusted; the scanner
+    // upgrades it to Ok when the user trusts the root.
     QTemporaryDir work;
     QVERIFY(work.isValid());
-    const QString venvRoot = makeBareVenv(work.filePath(QStringLiteral("app/.venv")));
+    const QString appRoot = work.filePath(QStringLiteral("app"));
+    makeBareVenv(QDir(appRoot).filePath(QStringLiteral(".venv")));
 
     BuiltinPipProvider provider;
-    provider.setTrustedRoots({ work.filePath(QStringLiteral("app")) });
-    const auto envId = EnvironmentId::fromHashed(provider.pluginId().value(),
-                                                 QDir(venvRoot).canonicalPath());
-    const QString toolId = QStringLiteral("builtin.pip:venv:%1").arg(envId.value());
-    const Environment env(envId, provider.kind(), Scope::Project,
-                          QDir(venvRoot).canonicalPath(), toolId, QString(), EnvStatus::Ok);
+    Scanner scanner(QVector<IProvider*>{ &provider });
+    scanner.setTrustPolicy(TrustPolicy(QStringList{ appRoot }));
 
-    const auto result = provider.list(env);
-    // No real pip exists yet, so it fails cleanly instead of parsing files.
+    QVector<Environment> envs;
+    QVector<ToolInstance> tools;
+    scanner.scanRoots(QStringList{ appRoot }, 3, {}, 50, envs);
+
+    QCOMPARE(envs.size(), 1);
+    QCOMPARE(envs[0].status(), EnvStatus::Ok);
+
+    // The venv carries no real pip executable, so a trusted list() must fail
+    // cleanly instead of silently falling back to parsing files.
+    const auto result = provider.list(envs[0]);
     QVERIFY(!result.ok());
 }
 
