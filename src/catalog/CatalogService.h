@@ -48,6 +48,10 @@ public:
     const AppSettings& settings() const { return m_settings; }
     AppSettings& settings() { return m_settings; }
 
+    // The plugin host owns the live providers; the UI uses it for the plugins
+    // screen (list + enable/disable).
+    PluginHost* pluginHost() { return &m_host; }
+
 signals:
     void environmentsChanged();
     void installationsChanged(const QString& envId);

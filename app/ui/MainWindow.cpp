@@ -6,6 +6,8 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLineEdit>
+#include <QListView>
+#include <QLabel>
 #include <QSplitter>
 #include <QVBoxLayout>
 #include <QTableView>
@@ -14,6 +16,7 @@
 MainWindow::MainWindow(CatalogService* catalog, QWidget* parent)
     : QMainWindow(parent)
     , m_catalog(catalog)
+    , m_pluginModel(catalog->pluginHost(), &catalog->settings(), this)
 {
     setWindowTitle(QStringLiteral("Package Browser"));
 
@@ -43,8 +46,16 @@ MainWindow::MainWindow(CatalogService* catalog, QWidget* parent)
     splitter->setStretchFactor(1, 3);
     layout->addWidget(splitter);
 
+    // Plugins screen: a list of loaded providers with an enabled checkbox.
+    auto* pluginLabel = new QLabel(QStringLiteral("Plugins"), central);
+    layout->addWidget(pluginLabel);
+    m_pluginList = new QListView(central);
+    m_pluginList->setModel(&m_pluginModel);
+    m_pluginList->setUniformItemSizes(true);
+    layout->addWidget(m_pluginList, 1);
+
     setCentralWidget(central);
-    resize(1000, 600);
+    resize(1000, 720);
 
     // Show current environments, then schedule a scan.
     m_treeModel.setEnvironments(m_catalog->listEnvironments());
