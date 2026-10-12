@@ -222,7 +222,11 @@ std::optional<LocatorSpec> parseLocator(const toml::table& t, int index, QString
     }
 
     spec.requireDir = strValue(t, "require_dir");
-    spec.toolInRoot = strValue(t, "tool_in_root");
+    spec.toolsInRoot = strArray(t, "tool_in_root");
+    if (spec.scope != Scope::Project && !spec.toolsInRoot.isEmpty()) {
+        setError(error, QStringLiteral("%1: tool_in_root is only valid for project scope").arg(where));
+        return std::nullopt;
+    }
 
     const bool hasJson = hasKey(t, "list_json");
     const bool hasFiles = hasKey(t, "list_files");

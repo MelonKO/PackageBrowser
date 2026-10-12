@@ -28,6 +28,8 @@ pb_add_test(pb_domain_tests test_domain.cpp)
 pb_add_test(pb_cache_tests test_cache.cpp)
 pb_add_test(pb_scan_tests test_scan.cpp)
 pb_add_test(pb_trust_tests test_trust.cpp)
+pb_add_test(pb_json_list_parser_tests test_json_list_parser.cpp)
+pb_add_test(pb_declarative_provider_tests test_declarative_provider.cpp)
 pb_add_test(pb_catalog_tests test_catalog.cpp)
 
 # UI model tests require the app target (Widgets), so they only build with the UI.

@@ -43,6 +43,7 @@ version_cmd = ["{exe}", "--version"]
 scope = "project"
 marker_file = "package.json"
 require_dir = "node_modules"
+tool_in_root = ["node_modules/.bin/npm", "npm"]
 [locator.list_files]
 dir = "node_modules"
 manifest = "package.json"
@@ -86,6 +87,8 @@ void ManifestTest::parsesNpmManifest()
     QCOMPARE(project.scope, Scope::Project);
     QCOMPARE(project.markerFile, QStringLiteral("package.json"));
     QCOMPARE(project.requireDir, QStringLiteral("node_modules"));
+    QCOMPARE(project.toolsInRoot.size(), 2);
+    QCOMPARE(project.toolsInRoot.at(0), QStringLiteral("node_modules/.bin/npm"));
     QVERIFY(project.listFiles.has_value());
     QVERIFY(!project.listJson.has_value());
     QCOMPARE(project.listFiles->dir, QStringLiteral("node_modules"));

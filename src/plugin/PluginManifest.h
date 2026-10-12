@@ -54,8 +54,9 @@ struct LocatorSpec {
     QString markerFile;
     // Optional extra directory that must exist next to the marker.
     QString requireDir;
-    // Optional tool path inside the environment root (e.g. bin/pip).
-    QString toolInRoot;
+    // Optional tool paths inside the environment root, in priority order
+    // (e.g. ["bin/pip", "Scripts/pip.exe"]).
+    QStringList toolsInRoot;
 
     std::optional<ListJsonSpec> listJson;
     std::optional<ListFilesSpec> listFiles;

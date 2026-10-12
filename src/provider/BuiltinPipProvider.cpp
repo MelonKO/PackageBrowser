@@ -1,6 +1,7 @@
 #include "provider/BuiltinPipProvider.h"
 
 #include "normalization/Pep503Normalizer.h"
+#include "process/ProcessRunner.h"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -22,43 +23,6 @@ namespace {
 const PluginId kPluginId(QStringLiteral("builtin.pip"));
 
 ManagerKind kind() { return ManagerKind(kPluginId, Ecosystem::Python); }
-
-// Locate an executable by name on PATH. On Windows, prefer resolving from the
-// same directory (handles both bare names and .exe extensions) so that
-// reparse-point shims in WindowsApps are found like any other executable.
-QString findOnPath(const QString& exeName)
-{
-    const QStringList paths = qEnvironmentVariable("PATH")
-                                  .split(QDir::listSeparator(), Qt::SkipEmptyParts);
-    const char* exts[] = { "", ".exe" }; // ... only relevant on Windows
-    for (const QString& dir : paths) {
-        for (const char* ext : exts) {
-            const QFileInfo fi(QDir(dir).filePath(exeName + QLatin1String(ext)));
-            if (fi.exists() && fi.isFile() && fi.isExecutable())
-                return fi.canonicalFilePath();
-        }
-    }
-    return QString();
-}
-
-// Run a command with a sane timeout and return stdout on success.
-std::optional<QByteArray> runProcess(const QString& exe, const QStringList& args)
-{
-    QProcess proc;
-    proc.setProcessChannelMode(QProcess::SeparateChannels);
-    proc.start(exe, args);
-    if (!proc.waitForStarted(3000))
-        return std::nullopt;
-    if (!proc.waitForFinished(15000)) {
-        // Terminate a hung child rather than leaving it running.
-        proc.kill();
-        proc.waitForFinished(3000);
-        return std::nullopt;
-    }
-    if (proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0)
-        return std::nullopt;
-    return proc.readAllStandardOutput();
-}
 
 QString normalizedKey(const QString& name) { return Pep503Normalizer::normalize(name); }
 
@@ -156,9 +120,9 @@ bool BuiltinPipProvider::hasCapability(Capability c) const
 ProviderResult<QVector<ToolInstance>> BuiltinPipProvider::detect()
 {
     ProviderResult<QVector<ToolInstance>> result;
-    QString pipPath = findOnPath(QStringLiteral("pip"));
+    QString pipPath = pb::findOnPath(QStringLiteral("pip"));
     if (pipPath.isEmpty())
-        pipPath = findOnPath(QStringLiteral("pip3"));
+        pipPath = pb::findOnPath(QStringLiteral("pip3"));
 
     if (pipPath.isEmpty()) {
         result.error = ProviderError::ToolNotFound;
@@ -166,9 +130,10 @@ ProviderResult<QVector<ToolInstance>> BuiltinPipProvider::detect()
     }
 
     QString version;
-    if (auto out = runProcess(pipPath, { QStringLiteral("--version") }); out) {
+    const pb::ProcessResult versionRun = pb::runProcess(pipPath, { QStringLiteral("--version") });
+    if (versionRun.finished && versionRun.exitCode == 0) {
         const QRegularExpression re(QStringLiteral("pip (\\S+)"));
-        const auto m = re.match(QString::fromUtf8(*out));
+        const auto m = re.match(QString::fromUtf8(versionRun.stdOut));
         if (m.hasMatch())
             version = m.captured(1);
     }
@@ -294,9 +259,9 @@ ProviderResult<QVector<Installation>> BuiltinPipProvider::list(const Environment
         }
     } else if (pipPath.isEmpty()) {
         // System pip: fall back to searching PATH only for System-scope envs.
-        pipPath = findOnPath(QStringLiteral("pip"));
+        pipPath = pb::findOnPath(QStringLiteral("pip"));
         if (pipPath.isEmpty())
-            pipPath = findOnPath(QStringLiteral("pip3"));
+            pipPath = pb::findOnPath(QStringLiteral("pip3"));
     }
 
     if (pipPath.isEmpty()) {
@@ -304,12 +269,13 @@ ProviderResult<QVector<Installation>> BuiltinPipProvider::list(const Environment
         return result;
     }
 
-    auto out = runProcess(pipPath, { QStringLiteral("list"), QStringLiteral("--format=json") });
-    if (!out) {
+    const pb::ProcessResult listRun =
+        pb::runProcess(pipPath, { QStringLiteral("list"), QStringLiteral("--format=json") });
+    if (!listRun.finished || listRun.exitCode != 0) {
         result.error = ProviderError::EnvBroken;
         result.complete = false;
         return result;
     }
-    result.value = parsePipJson(*out, env.id());
+    result.value = parsePipJson(listRun.stdOut, env.id());
     return result;
 }

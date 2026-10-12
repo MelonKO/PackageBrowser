@@ -21,8 +21,12 @@ set(PB_CORE_SOURCES
     domain/Ecosystem.cpp
     domain/PluginId.cpp
     normalization/Pep503Normalizer.cpp
+    normalization/NameNormalizer.cpp
     plugin/PluginManifest.cpp
+    process/ProcessRunner.cpp
     provider/BuiltinPipProvider.cpp
+    provider/DeclarativeProvider.cpp
+    provider/JsonListParser.cpp
     scanner/Scanner.cpp
     settings/AppSettings.cpp
     trust/TrustPolicy.cpp
@@ -40,6 +44,10 @@ set(PB_CORE_HEADERS
     domain/ToolInstance.h
     provider/IProvider.h
     provider/BuiltinPipProvider.h
+    provider/DeclarativeProvider.h
+    provider/JsonListParser.h
+    normalization/NameNormalizer.h
+    process/ProcessRunner.h
     plugin/PluginManifest.h
     normalization/Pep503Normalizer.h
     scanner/Scanner.h
