@@ -17,6 +17,19 @@ endif()
 option(PACKAGE_BROWSER_BUILD_TESTS "Build tests" ON)
 option(PACKAGE_BROWSER_BUILD_UI "Build UI" ON)
 
+# Plugin manifests (plugin.toml) are parsed with toml++. Header-only, no
+# compiled library, so the dependency stays a build-time fetch only.
+include(FetchContent)
+set(TOMLPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(TOMLPP_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(TOMLPP_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(tomlplusplus
+    GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+    GIT_TAG v3.4.0
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(tomlplusplus)
+
 add_subdirectory(src)
 
 if(PACKAGE_BROWSER_BUILD_UI)

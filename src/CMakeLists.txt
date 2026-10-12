@@ -51,6 +51,9 @@ target_include_directories(pb_core PUBLIC
 
 target_link_libraries(pb_core PRIVATE Qt6::Core Qt6::Sql)
 
+# toml++ is header-only; PUBLIC so tests can parse manifests too.
+target_link_libraries(pb_core PUBLIC tomlplusplus::tomlplusplus)
+
 target_compile_options(pb_core PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4>
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
