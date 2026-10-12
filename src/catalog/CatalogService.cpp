@@ -2,9 +2,11 @@
 
 #include "cache/Cache.h"
 #include "domain/EnvironmentId.h"
-#include "normalization/Pep503Normalizer.h"
+#include "normalization/NameNormalizer.h"
 #include "provider/IProvider.h"
 #include "trust/TrustPolicy.h"
+
+#include <QHash>
 
 CatalogService::CatalogService(QObject* parent)
     : QObject(parent)
@@ -51,11 +53,22 @@ QVector<Installation> CatalogService::findPackage(const QString& name) const
 {
     if (!m_cache)
         return {};
-    const QString norm = Pep503Normalizer::normalize(name);
+
+    // Normalization rules belong to the ecosystem of each environment, so the
+    // query is normalized per-environment (Python PEP 503, JS/vcpkg lowercase).
     QVector<Installation> out;
-    for (const Installation& inst : m_cache->allInstallations())
-        if (inst.nameNorm() == norm)
+    const QVector<Installation> all = m_cache->allInstallations();
+    // Cache the ecosystem lookup: envId -> ecosystem, so the scan is O(n).
+    QHash<QString, Ecosystem> ecoForEnv;
+    for (const Environment& env : m_environments)
+        ecoForEnv.insert(env.id().value(), env.kind().ecosystem());
+
+    for (const Installation& inst : all) {
+        const Ecosystem eco = ecoForEnv.value(
+            inst.envId().value(), Ecosystem::Python); // default: Python (legacy)
+        if (inst.nameNorm() == normalizeName(eco, name))
             out.append(inst);
+    }
     return out;
 }
 
@@ -122,7 +135,12 @@ void CatalogService::normalizeAndStoreInstallations(const Environment& env)
     // may run the manager. Either way it returns the package list to cache.
     const auto result = provider->list(env);
     if (!result.ok()) {
-        m_cache->updateEnvironmentStatus(env.id(), EnvStatus::Error);
+        // An untrusted project without a file-based fallback is refused, not
+        // broken: keep the meaningful Untrusted status instead of Error.
+        const EnvStatus status = result.error == ProviderError::Untrusted
+            ? EnvStatus::Untrusted
+            : EnvStatus::Error;
+        m_cache->updateEnvironmentStatus(env.id(), status);
         return;
     }
     m_cache->replaceInstallations(env.id(), result.value);
