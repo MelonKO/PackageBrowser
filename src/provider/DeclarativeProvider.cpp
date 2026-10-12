@@ -122,31 +122,33 @@ QStringList DeclarativeProvider::skipDirs() const
 ProviderResult<QVector<ToolInstance>> DeclarativeProvider::detect()
 {
     ProviderResult<QVector<ToolInstance>> result;
-    QSet<QString> seen;
+    // The manifest's executables are fallbacks, not multiple instances: pick
+    // the first one found on PATH so the manager is reported once even when
+    // several names (npm vs npm.cmd) resolve to distinct files in one dir.
+    QString path;
     for (const QString& exeName : m_manifest.tool().executables) {
-        const QString path = pb::findOnPath(exeName);
-        if (path.isEmpty() || seen.contains(path))
-            continue;
-        seen.insert(path);
-
-        QString version;
-        if (!m_manifest.tool().versionCmd.isEmpty()) {
-            const QStringList command = substitute(m_manifest.tool().versionCmd, path, QString());
-            if (!command.isEmpty()) {
-                const pb::ProcessResult run = pb::runProcess(command.first(), command.mid(1));
-                if (run.finished && run.exitCode == 0)
-                    version = extractVersion(QString::fromUtf8(run.stdOut),
-                                             m_manifest.tool().versionRegex);
-            }
-        }
-        result.value.append(
-            ToolInstance(kind(), toolIdFor(m_manifest.pluginId(), path), path, version));
+        path = pb::findOnPath(exeName);
+        if (!path.isEmpty())
+            break;
     }
 
-    if (result.value.isEmpty()) {
+    if (path.isEmpty()) {
         result.error = ProviderError::ToolNotFound;
         return result;
     }
+
+    QString version;
+    if (!m_manifest.tool().versionCmd.isEmpty()) {
+        const QStringList command = substitute(m_manifest.tool().versionCmd, path, QString());
+        if (!command.isEmpty()) {
+            const pb::ProcessResult run = pb::runProcess(command.first(), command.mid(1));
+            if (run.finished && run.exitCode == 0)
+                version = extractVersion(QString::fromUtf8(run.stdOut),
+                                         m_manifest.tool().versionRegex);
+        }
+    }
+    result.value.append(
+        ToolInstance(kind(), toolIdFor(m_manifest.pluginId(), path), path, version));
     return result;
 }
 
