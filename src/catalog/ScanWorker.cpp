@@ -72,25 +72,38 @@ void ScanWorker::startScan(const QString& dbPath,
     emit progress(0, environments.size());
     for (const ToolInstance& tool : tools)
         m_cache->upsertTool(tool);
-    int index = 0;
     QVector<Installation> all;
-    for (const Environment& env : environments) {
-        m_cache->upsertEnvironment(env);
+    for (int i = 0; i < environments.size(); ++i) {
+        const Environment& env = environments.at(i);
+        emit progress(i, environments.size());
         IProvider* provider = findProvider(env.kind());
         if (!provider) {
             m_cache->updateEnvironmentStatus(env.id(), EnvStatus::Error);
-        } else {
-            const auto result = provider->list(env);
-            if (!result.ok()) {
-                m_cache->updateEnvironmentStatus(env.id(),
-                    result.error == ProviderError::Untrusted ? EnvStatus::Untrusted
-                                                             : EnvStatus::Error);
-            } else {
-                m_cache->replaceInstallations(env.id(), result.value);
-                all += result.value;
-            }
+            continue;
         }
-        emit progress(++index, environments.size());
+
+        // A placeholder manager (executable present, no environments derived)
+        // is shown in the UI but has no real package storage of its own: skip
+        // persisting/populating it so it neither leaves a stale cache row nor
+        // triggers a pointless vcpkg invocation.
+        if (env.isPlaceholder())
+            continue;
+
+        m_cache->upsertEnvironment(env);
+        const auto result = provider->list(env);
+        if (!result.ok()) {
+            m_cache->updateEnvironmentStatus(env.id(),
+                result.error == ProviderError::Untrusted ? EnvStatus::Untrusted
+                                                         : EnvStatus::Error);
+        } else if (result.complete) {
+            // A complete listing is authoritative: replace what we had.
+            m_cache->replaceInstallations(env.id(), result.value);
+            all += result.value;
+        } else {
+            // Honest "I don't know": keep the previously cached packages
+            // (don't wipe them with an empty list) and flag the env.
+            m_cache->updateEnvironmentStatus(env.id(), EnvStatus::Error);
+        }
     }
 
     emit scanFinished(environments, tools, all, plugins);

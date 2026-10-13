@@ -104,36 +104,45 @@ def locate_at(scan_root):
 def list_packages(env):
     root = env.get("root", "")
     if not root or not os.path.isdir(root):
+        # The directory does not exist: nothing to read, but this is a real
+        # answer, not a failure.
         return {"installations": [], "complete": True}
 
     if env.get("scope") == "project":
-        return {"installations": _list_from_files(root), "complete": True}
+        installs = _list_from_files(root)
+        # File-based scanning cannot distinguish "empty" from "cannot read"
+        # robustly; treat a missing install dir as genuinely empty.
+        return {"installations": installs, "complete": True}
 
-    return {"installations": _list_from_vcpkg(root), "complete": True}
+    installs, ok = _list_from_vcpkg(root)
+    return {"installations": installs, "complete": ok}
 
 
 def _list_from_vcpkg(env_root):
     """Trusted system path: ask vcpkg.exe for the authoritative package list.
 
-    env_root is <VCPKG_ROOT>/installed/<triplet>; derive the triplet and filter
-    the JSON output so only packages of this environment are reported.
+    Returns (installations, ok). `ok` is False when the list could not be
+    produced (vcpkg.exe missing, crashed, or its output was not parseable), so
+    the host can report "I don't know" instead of a misleading empty list.
     """
     triplet = os.path.basename(env_root.rstrip("\\/"))
     exe = _vcpkg_exe()
     if not os.path.isfile(exe):
-        return []
+        return [], False
     try:
         proc = subprocess.run(
             [exe, "list", "--x-json"],
             capture_output=True, text=True, timeout=10,
             check=False, encoding="utf-8", errors="replace")
     except (subprocess.SubprocessError, OSError):
-        return []
+        return [], False
 
     try:
         data = json.loads(proc.stdout)
+        if not isinstance(data, dict):
+            return [], False
     except json.JSONDecodeError:
-        return []
+        return [], False
 
     installs = []
     for key, info in data.items():
@@ -141,6 +150,8 @@ def _list_from_vcpkg(env_root):
         # infrastructure/tool ports (vcpkg-cmake, vcpkg-tool-*, ...) so the list
         # shows user libraries.
         if not key.endswith(":" + triplet):
+            continue
+        if not isinstance(info, dict):
             continue
         name = info.get("package_name")
         if not name or name.startswith("vcpkg-"):
@@ -151,7 +162,7 @@ def _list_from_vcpkg(env_root):
             "location": os.path.join(env_root, "share", name),
         })
     installs.sort(key=lambda i: i["name"])
-    return installs
+    return installs, True
 
 
 def _list_from_files(env_root):

@@ -28,7 +28,8 @@ public:
                 QString root,
                 QString toolId = QString(),
                 QString inheritsFrom = QString(),
-                EnvStatus status = EnvStatus::Ok)
+                EnvStatus status = EnvStatus::Ok,
+                bool placeholder = false)
         : m_id(std::move(id))
         , m_kind(std::move(kind))
         , m_scope(scope)
@@ -36,6 +37,7 @@ public:
         , m_toolId(std::move(toolId))
         , m_inheritsFrom(std::move(inheritsFrom))
         , m_status(status)
+        , m_placeholder(placeholder)
     {}
 
     const EnvironmentId& id() const { return m_id; }
@@ -47,6 +49,12 @@ public:
     EnvStatus status() const { return m_status; }
     void setStatus(EnvStatus s) { m_status = s; }
 
+    // True for a synthetic "manager is installed" environment created when a
+    // provider's executable exists but yields no real environments. It exists
+    // for display only and must not be persisted to the cache as a real,
+    // authoritative package store.
+    bool isPlaceholder() const { return m_placeholder; }
+
 private:
     EnvironmentId m_id;
     ManagerKind m_kind;
@@ -55,4 +63,5 @@ private:
     QString m_toolId;
     QString m_inheritsFrom;
     EnvStatus m_status = EnvStatus::Ok;
+    bool m_placeholder = false;
 };
