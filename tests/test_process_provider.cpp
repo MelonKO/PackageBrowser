@@ -19,7 +19,7 @@ private slots:
     void manifestRejectsProviderAndToolTogether();
     void detectListsToolInstances();
     void quarantinesAfterRepeatedFailures();
-    void vcpkgPluginReadsInstalledControl();
+    void vcpkgPluginReadsProjectSpdx();
 
 private:
     static QString script();
@@ -252,7 +252,7 @@ sys.exit(0)
     QCOMPARE(provider.state(), ProcessProviderState::Ready);
 }
 
-void ProcessProviderTest::vcpkgPluginReadsInstalledControl()
+void ProcessProviderTest::vcpkgPluginReadsProjectSpdx()
 {
     const QString py = pythonBinary();
     if (py.isEmpty())
