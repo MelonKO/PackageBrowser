@@ -349,6 +349,23 @@ bool ProcessProvider::ensureStarted()
     if (resolved.isEmpty())
         resolved = program; // let QProcess try; start() will report failure
 
+    // A relative argument (e.g. "vcpkg_provider.py") is a path inside the
+    // plugin directory; QProcess starts the child with the app's cwd, so
+    // resolve it to an absolute path or the script will not be found. This
+    // covers both paths that contain a separator and bare file names.
+    for (QString& arg : args) {
+        if (QDir::isAbsolutePath(arg))
+            continue;
+        const bool hasSep = arg.contains(QLatin1Char('/')) || arg.contains(QLatin1Char('\\'));
+        const QString candidate = hasSep ? pluginDir.filePath(arg) : pluginDir.filePath(arg);
+        if (QFileInfo::exists(candidate)) {
+            arg = QDir(candidate).canonicalPath();
+            continue;
+        }
+        if (hasSep)
+            arg = pluginDir.absoluteFilePath(arg);
+    }
+
     m_started = m_client.start(resolved, args);
     if (!m_started)
         m_startFailed = true;
