@@ -20,6 +20,18 @@ import os
 import subprocess
 import sys
 
+# Internal vcpkg helper ports that are installed alongside user libraries but
+# are not user-facing packages. Excluded explicitly (not by name prefix) so a
+# real library whose name happens to start with "vcpkg-" is kept.
+_INFRASTRUCTURE_PORTS = {
+    "vcpkg-cmake",
+    "vcpkg-cmake-config",
+    "vcpkg-cmake-get-vars",
+    "vcpkg-make",
+    "vcpkg-pkgconfig-get-modules",
+    "vcpkg-tool-meson",
+}
+
 
 def _read_message():
     headers = {}
@@ -118,6 +130,40 @@ def list_packages(env):
     return {"installations": installs, "complete": ok}
 
 
+_VCPKG_LIST_CACHE = {"root": None, "data": None, "ok": False}
+
+
+def _vcpkg_list_all():
+    """Run `vcpkg list --x-json` once per vcpkg root and memoize the result.
+
+    Many environments (one per triplet) share the same VCPKG_ROOT, so we run
+    vcpkg.exe once and reuse the parsed output for every triplet instead of
+    spawning a subprocess per environment.
+    """
+    root = _vcpkg_root()
+    if _VCPKG_LIST_CACHE["root"] == root:
+        return _VCPKG_LIST_CACHE["data"], _VCPKG_LIST_CACHE["ok"]
+
+    exe = _vcpkg_exe()
+    data = None
+    ok = False
+    if os.path.isfile(exe):
+        try:
+            proc = subprocess.run(
+                [exe, "list", "--x-json"],
+                capture_output=True, text=True, timeout=10,
+                check=False, encoding="utf-8", errors="replace")
+            parsed = json.loads(proc.stdout)
+            if isinstance(parsed, dict):
+                data = parsed
+                ok = True
+        except (subprocess.SubprocessError, OSError, json.JSONDecodeError):
+            data, ok = None, False
+
+    _VCPKG_LIST_CACHE.update(root=root, data=data, ok=ok)
+    return data, ok
+
+
 def _list_from_vcpkg(env_root):
     """Trusted system path: ask vcpkg.exe for the authoritative package list.
 
@@ -126,36 +172,24 @@ def _list_from_vcpkg(env_root):
     the host can report "I don't know" instead of a misleading empty list.
     """
     triplet = os.path.basename(env_root.rstrip("\\/"))
-    exe = _vcpkg_exe()
-    if not os.path.isfile(exe):
-        return [], False
-    try:
-        proc = subprocess.run(
-            [exe, "list", "--x-json"],
-            capture_output=True, text=True, timeout=10,
-            check=False, encoding="utf-8", errors="replace")
-    except (subprocess.SubprocessError, OSError):
-        return [], False
-
-    try:
-        data = json.loads(proc.stdout)
-        if not isinstance(data, dict):
-            return [], False
-    except json.JSONDecodeError:
+    data, ok = _vcpkg_list_all()
+    if not ok or not isinstance(data, dict):
         return [], False
 
     installs = []
+    seen = set()
     for key, info in data.items():
-        # key is "<name>:<triplet>"; report only this triplet, drop
-        # infrastructure/tool ports (vcpkg-cmake, vcpkg-tool-*, ...) so the list
-        # shows user libraries.
+        # key is "<name>:<triplet>"; report only this triplet.
         if not key.endswith(":" + triplet):
             continue
         if not isinstance(info, dict):
             continue
         name = info.get("package_name")
-        if not name or name.startswith("vcpkg-"):
+        if not name or name in _INFRASTRUCTURE_PORTS:
             continue
+        if name in seen:
+            continue  # some layouts list the same port more than once
+        seen.add(name)
         installs.append({
             "name": name,
             "version": info.get("version") or "",
@@ -191,6 +225,7 @@ def _list_from_files(env_root):
                     "version": version,
                     "location": pkg_dir,
                 })
+    installs.sort(key=lambda i: i["name"])
     return installs
 
 

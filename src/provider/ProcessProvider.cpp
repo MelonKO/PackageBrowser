@@ -284,20 +284,27 @@ QString ProcessProvider::resolveOnPath(const QString& program)
 
     const QStringList dirs = qEnvironmentVariable("PATH")
                                  .split(QDir::listSeparator(), Qt::SkipEmptyParts);
-    QStringList candidates;
     for (const QString& dir : dirs) {
-        candidates.append(QDir(dir).filePath(program));
+        // Bare name first, then each PATHEXT-suffixed candidate; return the
+        // first real executable rather than building up the whole list.
+        QStringList candidates{ QDir(dir).filePath(program) };
         for (const QString& ext : suffixes)
             candidates.append(QDir(dir).filePath(program + ext));
-    }
-    for (const QString& c : candidates) {
-        const QFileInfo fi(c);
-        if (!fi.exists() || !fi.isFile())
-            continue;
-        // Any real executable is fine; a 0-byte reparse point is a Store shim.
-        if (fi.size() <= 0)
-            continue;
-        return fi.canonicalFilePath();
+        for (const QString& c : candidates) {
+            const QFileInfo fi(c);
+            if (!fi.exists() || !fi.isFile())
+                continue;
+            // Always skip 0-byte entries (Windows Store reparse-point shims that
+            // QProcess cannot spawn); on POSIX also require the executable bit.
+            if (fi.size() <= 0)
+                continue;
+#ifdef Q_OS_WIN
+            return fi.canonicalFilePath();
+#else
+            if (fi.isExecutable())
+                return fi.canonicalFilePath();
+#endif
+        }
     }
     return QString();
 }
