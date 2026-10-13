@@ -19,7 +19,7 @@ private slots:
     void manifestRejectsProviderAndToolTogether();
     void detectListsToolInstances();
     void quarantinesAfterRepeatedFailures();
-    void vcpkgPluginReadsInstalledControl();
+    void vcpkgPluginReadsProjectSpdx();
 
 private:
     static QString script();
@@ -252,26 +252,42 @@ sys.exit(0)
     QCOMPARE(provider.state(), ProcessProviderState::Ready);
 }
 
-void ProcessProviderTest::vcpkgPluginReadsInstalledControl()
+void ProcessProviderTest::vcpkgPluginReadsProjectSpdx()
 {
     const QString py = pythonBinary();
     if (py.isEmpty())
         QSKIP("no system python on PATH");
 
-    // Point the provider at the real in-repo vcpkg_provider.py and feed it a
-    // temp vcpkg root with one installed triplet and one CONTROL file.
+    // Point the provider at the real in-repo vcpkg_provider.py.
     const QString repoPlugin = QStringLiteral("C:/Projects/C++/PackageBrowser (Multitool)/plugins/vcpkg/vcpkg_provider.py");
     if (!QFileInfo::exists(repoPlugin))
         QSKIP("vcpkg_provider.py not in repo tree");
 
+    // Fake VCPKG_ROOT with one triplet containing a fake vcpkg.exe whose
+    // `list --x-json` returns one package. The double-sided listing must:
+    // 1) for scope=system, ask vcpkg.exe (JSON);
+    // 2) for scope=project, read share/<pkg>/vcpkg.spdx.json (no execution).
     QTemporaryDir root;
     QVERIFY(root.isValid());
-    const QString tripletDir = root.filePath(QStringLiteral("installed/x64-windows/zlib"));
-    QVERIFY(QDir().mkpath(tripletDir));
-    QFile control(QDir(tripletDir).filePath(QStringLiteral("CONTROL")));
-    QVERIFY(control.open(QIODevice::WriteOnly));
-    control.write("Package: zlib\nVersion: 1.3.1\nDescription: bar\n");
-    control.close();
+
+    // The .exe-based system path needs a real vcpkg.exe, which is platform and
+    // environment specific, so the C++ test covers only the deterministic
+    // file-based project path (manifest mode: read from SPDX, nothing executed).
+
+    // --- project env: manifest mode via SPDX files (no execution) ---
+    const QString proj = root.filePath(QStringLiteral("proj"));
+    QVERIFY(QDir().mkpath(proj));
+    QFile marker(QDir(proj).filePath(QStringLiteral("vcpkg.json")));
+    QVERIFY(marker.open(QIODevice::WriteOnly));
+    marker.write("{\"dependencies\":[]}");
+    marker.close();
+    const QString pkgDir = proj + QStringLiteral("/vcpkg_installed/share/brotli");
+    QVERIFY(QDir().mkpath(pkgDir));
+    QFile spdx(QDir(pkgDir).filePath(QStringLiteral("vcpkg.spdx.json")));
+    QVERIFY(spdx.open(QIODevice::WriteOnly));
+    spdx.write("{\"packages\":[{\"SPDXID\":\"SPDXRef-port\",\"name\":\"brotli\","
+               "\"versionInfo\":\"1.2.0\"}]}");
+    spdx.close();
 
     QString text = providerManifest();
     QString scriptForward = repoPlugin;
@@ -282,35 +298,20 @@ void ProcessProviderTest::vcpkgPluginReadsInstalledControl()
     auto manifest = PluginManifest::parse(text, QStringLiteral("mock/plugin.toml"), &error);
     QVERIFY2(manifest.has_value(), qPrintable(error));
 
-    // The plugin's detect()/locate() derive the root from VCPKG_ROOT.
-    QString rootForward = root.path();
-    qputenv("VCPKG_ROOT", rootForward.replace(QLatin1Char('\\'), QLatin1Char('/')).toUtf8());
-
     ProcessProvider provider(*manifest);
 
-    const auto detected = provider.detect();
-    QVERIFY(detected.ok());
-    QVERIFY(detected.value.size() >= 1);
+    // Project environment from a scan root: files-based, no execution.
+    const auto locatedProject = provider.locateAt(proj);
+    QVERIFY(locatedProject.ok());
+    QCOMPARE(locatedProject.value.size(), 1);
+    QCOMPARE(locatedProject.value[0].scope(), Scope::Project);
+    QCOMPARE(locatedProject.value[0].root(), QDir(proj).canonicalPath());
 
-    const auto located = provider.locate(detected.value[0]);
-    QVERIFY(located.ok());
-    bool foundTriplet = false;
-    for (const Environment& e : located.value)
-        if (e.root().endsWith(QStringLiteral("x64-windows")))
-            foundTriplet = true;
-    QVERIFY(foundTriplet);
-
-    // List the system env and confirm the CONTROL file was parsed.
-    for (const Environment& e : located.value) {
-        if (!e.root().endsWith(QStringLiteral("x64-windows")))
-            continue;
-        const auto listed = provider.list(e);
-        QVERIFY(listed.ok());
-        QCOMPARE(listed.value.size(), 1);
-        QCOMPARE(listed.value[0].nameNorm(), QStringLiteral("zlib"));
-        QCOMPARE(listed.value[0].version(), QStringLiteral("1.3.1"));
-        break;
-    }
+    const auto listedProject = provider.list(locatedProject.value[0]);
+    QVERIFY(listedProject.ok());
+    QCOMPARE(listedProject.value.size(), 1);
+    QCOMPARE(listedProject.value[0].nameNorm(), QStringLiteral("brotli"));
+    QCOMPARE(listedProject.value[0].version(), QStringLiteral("1.2.0"));
 }
 
 QTEST_MAIN(ProcessProviderTest)

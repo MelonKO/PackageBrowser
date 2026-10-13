@@ -1,6 +1,7 @@
 #include <QtTest/QtTest>
 
 #include "plugin/PluginManifest.h"
+#include "process/ProcessRunner.h"
 #include "provider/BuiltinPipProvider.h"
 #include "provider/DeclarativeProvider.h"
 #include "scanner/Scanner.h"
@@ -20,6 +21,7 @@ private slots:
     void usesDeclarativeMarkersAndSkipDirs();
     void systemEnvNotSubjectToTrust();
     void scanRootMatchingSkipDirIsStillWalked();
+    void managerWithoutEnvironmentsIsStillShown();
 };
 
 // Build a minimal venv layout with a *.dist-info/METADATA under site-packages.
@@ -267,6 +269,53 @@ version = "version"
 
     // The root itself is walked even though a parent segment is a skip dir.
     QCOMPARE(envs.size(), 1);
+}
+
+namespace {
+// A minimal detected-but-empty provider: reports a tool on PATH but its
+// locate() derives no environments.
+class EmptyToolProvider : public IProvider {
+public:
+    PluginId id;
+    ManagerKind managerKind{ id, Ecosystem::Cpp };
+    ProviderResult<QVector<ToolInstance>> detect() override
+    {
+        const QString path = pb::findOnPath(QStringLiteral("cmd"));
+        if (path.isEmpty())
+            return ProviderResult<QVector<ToolInstance>>{ {}, ProviderError::ToolNotFound, true };
+        ProviderResult<QVector<ToolInstance>> r;
+        r.value.append(ToolInstance(managerKind, QStringLiteral("empty:tool"), path));
+        return r;
+    }
+    ProviderResult<QVector<Environment>> locate(const ToolInstance&) override { return {}; }
+    ProviderResult<QVector<Environment>> locateAt(const QString&) override { return {}; }
+    ProviderResult<QString> fingerprint(const Environment&) override { return {}; }
+    ProviderResult<QVector<Installation>> list(const Environment&, bool) override { return {}; }
+    const PluginId& pluginId() const override { return id; }
+    const ManagerKind& kind() const override { return managerKind; }
+    bool hasCapability(Capability) const override { return true; }
+};
+} // namespace
+
+void ShellScanTest::managerWithoutEnvironmentsIsStillShown()
+{
+    // A manager whose executable is on PATH but which yields no environments
+    // must still appear in the Global section (as a placeholder environment),
+    // so the user sees the manager instead of it being silently hidden.
+    EmptyToolProvider provider;
+    Scanner scanner(QVector<IProvider*>{ &provider });
+    QVector<Environment> envs;
+    QVector<ToolInstance> tools;
+    scanner.scanGlobals(envs, tools);
+
+    // `cmd` is present on Windows PATH; the provider detects it but derives no
+    // environments, and the scanner must surface a system placeholder for it.
+    // On POSIX `cmd` may be absent, in which case detect() fails and nothing
+    // is expected.
+    if (tools.isEmpty())
+        return; // executable not on PATH here: nothing to show, that's fine
+    QVERIFY(!envs.isEmpty());
+    QCOMPARE(envs[0].scope(), Scope::System);
 }
 
 QTEST_MAIN(ShellScanTest)

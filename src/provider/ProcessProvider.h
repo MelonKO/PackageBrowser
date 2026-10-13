@@ -62,6 +62,11 @@ signals:
     void stateChanged(ProcessProviderState state);
 
 private:
+    // Resolve an executable name on PATH, skipping files that QProcess cannot
+    // spawn (e.g. 0-byte Windows Store shims), so a provider's interpreter is
+    // actually started.
+    static QString resolveOnPath(const QString& program);
+
     // Send one request and block until its response or deadline. Returns true
     // when the plugin answered with a `result`; on RPC error or timeout fills
     // `*error` and returns false.

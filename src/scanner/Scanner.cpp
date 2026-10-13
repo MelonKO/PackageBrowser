@@ -22,11 +22,37 @@ void Scanner::scanGlobals(QVector<Environment>& envs, QVector<ToolInstance>& too
         if (!detect.ok())
             continue;
 
+        int located = 0;
+        bool locateOk = true;
         for (const ToolInstance& tool : detect.value) {
             tools.append(tool);
             const auto loc = provider->locate(tool);
-            if (loc.ok())
+            if (loc.ok()) {
                 envs.append(loc.value);
+                located += loc.value.size();
+            } else {
+                locateOk = false;
+            }
+        }
+
+        // A manager whose executable is present but which honestly yielded no
+        // environments must still be visible: emit a placeholder environment
+        // rooted at the tool's directory so the UI shows the manager (with an
+        // empty package list) instead of hiding it entirely. Only emit it when
+        // locate() succeeded and was genuinely empty; a locate() that failed
+        // must not be masked as a healthy empty manager.
+        if (locateOk && located == 0 && !detect.value.isEmpty()) {
+            const ToolInstance& tool = detect.value.first();
+            const QString root = QFileInfo(tool.path()).dir().path();
+            envs.append(Environment(
+                EnvironmentId::fromHashed(provider->pluginId().value(), root),
+                provider->kind(),
+                Scope::System,
+                root,
+                tool.id(),
+                QString(),           // inheritsFrom
+                EnvStatus::Ok,       // status
+                /*placeholder=*/true));
         }
     }
 }

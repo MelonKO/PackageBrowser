@@ -1,6 +1,7 @@
 #include "provider/ProcessProvider.h"
 
 #include "domain/EnvironmentId.h"
+#include "process/ProcessRunner.h"
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -269,6 +270,45 @@ void ProcessProvider::recordFailure()
     }
 }
 
+QString ProcessProvider::resolveOnPath(const QString& program)
+{
+    // Walk PATH ourselves instead of relying on QProcess's own lookup: we want
+    // to skip entries QProcess cannot spawn (0-byte Store shims), otherwise a
+    // provider whose interpreter resolves to such a shim exits instantly and
+    // the manager is never detected.
+    QStringList suffixes;
+#ifdef Q_OS_WIN
+    suffixes << qEnvironmentVariable("PATHEXT")
+                    .split(QLatin1Char(';'), Qt::SkipEmptyParts);
+#endif
+
+    const QStringList dirs = qEnvironmentVariable("PATH")
+                                 .split(QDir::listSeparator(), Qt::SkipEmptyParts);
+    for (const QString& dir : dirs) {
+        // Bare name first, then each PATHEXT-suffixed candidate; return the
+        // first real executable rather than building up the whole list.
+        QStringList candidates{ QDir(dir).filePath(program) };
+        for (const QString& ext : suffixes)
+            candidates.append(QDir(dir).filePath(program + ext));
+        for (const QString& c : candidates) {
+            const QFileInfo fi(c);
+            if (!fi.exists() || !fi.isFile())
+                continue;
+            // Always skip 0-byte entries (Windows Store reparse-point shims that
+            // QProcess cannot spawn); on POSIX also require the executable bit.
+            if (fi.size() <= 0)
+                continue;
+#ifdef Q_OS_WIN
+            return fi.canonicalFilePath();
+#else
+            if (fi.isExecutable())
+                return fi.canonicalFilePath();
+#endif
+        }
+    }
+    return QString();
+}
+
 void ProcessProvider::setState(ProcessProviderState s)
 {
     if (m_state == s)
@@ -294,15 +334,45 @@ bool ProcessProvider::ensureStarted()
 
     QString program = m_manifest.processProvider().program;
     QStringList args = m_manifest.processProvider().args;
-    // A bare provider script path is resolved against the plugin's directory.
+
+    // A command with no path separator is a program name to resolve on PATH,
+    // or a bare script path inside the plugin directory. Resolving the name on
+    // PATH is important: on Windows it skips 0-byte Store "python" shims that
+    // QProcess cannot spawn as a child, so the provider process would die
+    // instantly and the manager would never be detected.
     const QDir pluginDir(QFileInfo(m_manifest.sourcePath()).dir());
-    if (!program.contains(QLatin1Char('/')) && !program.contains(QLatin1Char('\\'))) {
+    const bool hasSeparator = program.contains(QLatin1Char('/'))
+        || program.contains(QLatin1Char('\\'));
+    QString resolved;
+    if (hasSeparator) {
+        resolved = program;
+    } else {
         const QString local = pluginDir.filePath(program);
         if (QFileInfo::exists(local))
-            program = QDir(local).canonicalPath();
+            resolved = QDir(local).canonicalPath();
+        else
+            resolved = resolveOnPath(program);
+    }
+    if (resolved.isEmpty())
+        resolved = program; // let QProcess try; start() will report failure
+
+    // A relative argument (e.g. "vcpkg_provider.py") is a path inside the
+    // plugin directory; QProcess starts the child with the app's cwd, so
+    // resolve it to an absolute path or the script will not be found. This
+    // covers both paths that contain a separator and bare file names.
+    for (QString& arg : args) {
+        if (QDir::isAbsolutePath(arg))
+            continue;
+        const QString candidate = pluginDir.filePath(arg);
+        if (QFileInfo::exists(candidate)) {
+            arg = QDir(candidate).canonicalPath();
+            continue;
+        }
+        if (arg.contains(QLatin1Char('/')) || arg.contains(QLatin1Char('\\')))
+            arg = pluginDir.absoluteFilePath(arg);
     }
 
-    m_started = m_client.start(program, args);
+    m_started = m_client.start(resolved, args);
     if (!m_started)
         m_startFailed = true;
     return m_started;
