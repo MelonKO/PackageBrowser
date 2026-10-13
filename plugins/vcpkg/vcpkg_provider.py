@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """JSON-RPC 2.0 provider for vcpkg over stdio (Content-Length framing).
 
-The host runs this script as an external provider. It answers the IProvider
-read operations without ever executing vcpkg itself, so a foreign project
-cannot run code: installations are read from the filesystem.
+The host runs this script as an external provider. How installations are read
+depends on the environment's scope:
 
-Classic mode: the environment is the vcpkg root (VCPKG_ROOT or the directory
-containing this script), and packages live in <root>/installed/<triplet>.
-Manifest mode: a project with vcpkg.json is an environment; packages are
-located under vcpkg_installed/.
+- scope=system (classic mode, the environment root is <VCPKG_ROOT>/installed/
+  <triplet>): the trusted vcpkg.exe from VCPKG_ROOT answers `list --x-json`,
+  which yields name, version, triplet and features authoritatively.
+- scope=project (manifest mode, a directory with vcpkg.json): nothing is
+  executed; packages are read from files under vcpkg_installed/ using the
+  SPDX manifest (share/<pkg>/vcpkg.spdx.json), so foreign project code never
+  runs. This mirrors the trust rule for project-local environments.
 
 Only stderr may carry diagnostics; stdout is reserved for the protocol.
 """
 
 import json
 import os
+import subprocess
 import sys
 
 
@@ -56,13 +59,16 @@ def _vcpkg_root():
     return os.environ.get("VCPKG_ROOT", "").strip()
 
 
+def _vcpkg_exe():
+    return os.path.join(_vcpkg_root(), "vcpkg.exe")
+
+
 def detect():
     root = _vcpkg_root()
     if not root:
         # No VCPKG_ROOT: no tool instance to report.
         return {"tools": []}
-    return {"tools": [{"path": os.path.join(root, "vcpkg.exe"),
-                       "version": ""}]}
+    return {"tools": [{"path": _vcpkg_exe(), "version": ""}]}
 
 
 def locate(tool):
@@ -85,7 +91,7 @@ def locate(tool):
 
 def locate_at(scan_root):
     # Manifest mode: a project directory is an environment when it has
-    # vcpkg.json. Packages live in <root>/vcpkg_installed.
+    # vcpkg.json. Packages are read from files (never executed).
     if os.path.isfile(os.path.join(scan_root, "vcpkg.json")):
         return {"environments": [{
             "root": scan_root,
@@ -100,40 +106,110 @@ def list_packages(env):
     if not root or not os.path.isdir(root):
         return {"installations": [], "complete": True}
 
-    # Both modes keep packages under subdirectories named <name>/info or as
-    # <name> directories; the simplest reliable signal is a CONTROL/METADATA
-    # file that carries "Package: <name>" and "Version: <version>".
-    installs = []
-    with os.scandir(root) as it:
-        for entry in it:
-            if not entry.is_dir():
-                continue
-            for meta_name in ("CONTROL", "METADATA"):
-                meta_path = os.path.join(entry.path, meta_name)
-                if os.path.isfile(meta_path):
-                    package, version = _parse_control(meta_path)
-                    if package:
-                        installs.append({
-                            "name": package,
-                            "version": version,
-                            "location": entry.path,
-                        })
-                    break
-    return {"installations": installs, "complete": True}
+    if env.get("scope") == "project":
+        return {"installations": _list_from_files(root), "complete": True}
+
+    return {"installations": _list_from_vcpkg(root), "complete": True}
 
 
-def _parse_control(path):
-    name = version = ""
+def _list_from_vcpkg(env_root):
+    """Trusted system path: ask vcpkg.exe for the authoritative package list.
+
+    env_root is <VCPKG_ROOT>/installed/<triplet>; derive the triplet and filter
+    the JSON output so only packages of this environment are reported.
+    """
+    triplet = os.path.basename(env_root.rstrip("\\/"))
+    exe = _vcpkg_exe()
+    if not os.path.isfile(exe):
+        return []
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if line.startswith("Package:") and not name:
-                    name = line.split(":", 1)[1].strip()
-                elif line.startswith("Version:") and not version:
-                    version = line.split(":", 1)[1].strip()
+        proc = subprocess.run(
+            [exe, "list", "--x-json"],
+            capture_output=True, text=True, timeout=10,
+            check=False, encoding="utf-8", errors="replace")
+    except (subprocess.SubprocessError, OSError):
+        return []
+
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return []
+
+    installs = []
+    for key, info in data.items():
+        # key is "<name>:<triplet>"; report only this triplet, drop
+        # infrastructure/tool ports (vcpkg-cmake, vcpkg-tool-*, ...) so the list
+        # shows user libraries.
+        if not key.endswith(":" + triplet):
+            continue
+        name = info.get("package_name")
+        if not name or name.startswith("vcpkg-"):
+            continue
+        installs.append({
+            "name": name,
+            "version": info.get("version") or "",
+            "location": os.path.join(env_root, "share", name),
+        })
+    installs.sort(key=lambda i: i["name"])
+    return installs
+
+
+def _list_from_files(env_root):
+    """Trusted-agnostic read of a project's manifest-mode install.
+
+    Packages live under <root>/vcpkg_installed[/<triplet>]/share/<pkg>/ and are
+    identified by vcpkg.spdx.json, whose packages[] carries SPDXRef-port with a
+    clean name + versionInfo. Nothing is executed.
+    """
+    installs = []
+    installed_dir = os.path.join(env_root, "vcpkg_installed")
+    if not os.path.isdir(installed_dir):
+        return installs
+
+    # Both <root>/vcpkg_installed/<triplet>/share and /share are observed.
+    for share_base in _share_candidates(installed_dir):
+        for pkg in sorted(os.listdir(share_base)):
+            pkg_dir = os.path.join(share_base, pkg)
+            spdx = os.path.join(pkg_dir, "vcpkg.spdx.json")
+            if not os.path.isdir(pkg_dir) or not os.path.isfile(spdx):
+                continue
+            name, version = _parse_spdx(spdx)
+            if name:
+                installs.append({
+                    "name": name,
+                    "version": version,
+                    "location": pkg_dir,
+                })
+    return installs
+
+
+def _share_candidates(installed_dir):
+    candidates = []
+    flat = os.path.join(installed_dir, "share")
+    if os.path.isdir(flat):
+        candidates.append(flat)
+    try:
+        for entry in os.listdir(installed_dir):
+            nested = os.path.join(installed_dir, entry, "share")
+            if os.path.isdir(nested):
+                candidates.append(nested)
     except OSError:
         pass
-    return name, version
+    return candidates
+
+
+def _parse_spdx(path):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            doc = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return "", ""
+    # packages[] has both SPDXRef-port (clean name + versionInfo) and
+    # SPDXRef-binary (name=name:triplet, versionInfo=abi hash). Take "port".
+    for pkg in doc.get("packages", []):
+        if pkg.get("SPDXID") == "SPDXRef-port":
+            return pkg.get("name", ""), pkg.get("versionInfo", "") or ""
+    return "", ""
 
 
 _HANDLERS = {
