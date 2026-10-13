@@ -16,6 +16,7 @@ set(PB_CORE_SOURCES
     core.cpp
     cache/Cache.cpp
     catalog/CatalogService.cpp
+    catalog/ScanWorker.cpp
     domain/EnvironmentId.cpp
     domain/Environment.cpp
     domain/Ecosystem.cpp
@@ -39,6 +40,7 @@ set(PB_CORE_SOURCES
 set(PB_CORE_HEADERS
     cache/Cache.h
     catalog/CatalogService.h
+    catalog/ScanWorker.h
     domain/EnvironmentId.h
     domain/Environment.h
     domain/Installation.h
