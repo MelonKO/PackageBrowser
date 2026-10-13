@@ -356,13 +356,12 @@ bool ProcessProvider::ensureStarted()
     for (QString& arg : args) {
         if (QDir::isAbsolutePath(arg))
             continue;
-        const bool hasSep = arg.contains(QLatin1Char('/')) || arg.contains(QLatin1Char('\\'));
-        const QString candidate = hasSep ? pluginDir.filePath(arg) : pluginDir.filePath(arg);
+        const QString candidate = pluginDir.filePath(arg);
         if (QFileInfo::exists(candidate)) {
             arg = QDir(candidate).canonicalPath();
             continue;
         }
-        if (hasSep)
+        if (arg.contains(QLatin1Char('/')) || arg.contains(QLatin1Char('\\')))
             arg = pluginDir.absoluteFilePath(arg);
     }
 
