@@ -10,12 +10,14 @@
 class CatalogService;
 class QCheckBox;
 class QLineEdit;
+class QTabWidget;
 class QTreeView;
 class QTableView;
 class QListView;
+class QWidget;
 
-// Main application window: environment tree on the left, package table of the
-// selected environment on the right, plus a filter box and a plugins screen.
+// Main application window: two tabs - "Packages" (environment tree + package
+// table + filter) and "Plugins" (list of loaded providers with enable toggles).
 // See docs/UI на Qt.md.
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -28,6 +30,7 @@ private slots:
     void onFilterChanged(const QString& text);
     void onScanFinished();
     void onShowAllToggled(bool checked);
+    void onReloadPlugins();
 
 private:
     CatalogService* m_catalog;
@@ -35,6 +38,7 @@ private:
     InstallationTableModel m_tableModel;
     PackageFilterProxy m_filterProxy;
     PluginListModel m_pluginModel;
+    QTabWidget* m_tabs = nullptr;
     QTreeView* m_tree = nullptr;
     QTableView* m_table = nullptr;
     QListView* m_pluginList = nullptr;

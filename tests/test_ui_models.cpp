@@ -5,10 +5,10 @@
 #include "app/ui/PackageFilterProxy.h"
 #include "app/ui/PluginListModel.h"
 
+#include "catalog/PluginInfo.h"
 #include "domain/EnvironmentId.h"
 #include "domain/ManagerKind.h"
 #include "domain/PluginId.h"
-#include "plugin/PluginHost.h"
 #include "settings/AppSettings.h"
 
 #include <QAbstractItemModelTester>
@@ -117,19 +117,15 @@ void UiModelsTest::filterHidesRows()
 
 void UiModelsTest::pluginListTogglesEnabledState()
 {
-    // Host with built-in pip (always) plus one process provider loaded from a
-    // temp manifest with [provider] exec.
-    QTemporaryDir dir;
-    QVERIFY(dir.isValid());
-    writeFile(QDir(dir.filePath(QStringLiteral("vcpkg"))).filePath(QStringLiteral("plugin.toml")),
-              "[plugin]\n"
-              "id = \"builtin.vcpkg\"\n"
-              "api = 1\n"
-              "name = \"vcpkg\"\n"
-              "ecosystem = \"cpp\"\n"
-              "capabilities = [\"detect\", \"locate\", \"list\"]\n"
-              "[provider]\n"
-              "exec = [\"python\", \"vcpkg_provider.py\"]\n");
+    // The model is fed a snapshot of loaded providers (what the worker ships
+    // after a scan), not a live PluginHost.
+    PluginInfo pip;
+    pip.id = QStringLiteral("builtin.pip");
+    pip.state = QStringLiteral("ready");
+    PluginInfo vcpkg;
+    vcpkg.id = QStringLiteral("builtin.vcpkg");
+    vcpkg.isProcess = true;
+    vcpkg.state = QStringLiteral("ready");
 
     // Route QSettings to a test-only scope so write and read hit the same key
     // and the developer's real package-browser config is left untouched.
@@ -138,13 +134,10 @@ void UiModelsTest::pluginListTogglesEnabledState()
     AppSettings settings;
     settings.setDisabledPluginIds({}); // clean slate before the toggle
 
-    PluginHost host;
-    host.load(dir.path());
-    QVERIFY(host.providers().size() >= 2);
-
-    PluginListModel model(&host, &settings);
+    PluginListModel model(&settings);
+    model.setPlugins({ pip, vcpkg });
     QAbstractItemModelTester tester(&model, QAbstractItemModelTester::FailureReportingMode::Fatal);
-    QCOMPARE(model.rowCount(), host.providers().size());
+    QCOMPARE(model.rowCount(), 2);
 
     // Find the vcpkg row and disable it via the model.
     int vcpkgRow = -1;
@@ -161,11 +154,13 @@ void UiModelsTest::pluginListTogglesEnabledState()
     QVERIFY(model.data(model.index(vcpkgRow, 0), int(PluginListModel::Role::Enabled)).toBool());
     QVERIFY(model.setData(model.index(vcpkgRow, 0), false, Qt::EditRole));
     QVERIFY(!model.data(model.index(vcpkgRow, 0), int(PluginListModel::Role::Enabled)).toBool());
-    QVERIFY(!model.isEnabled(QStringLiteral("builtin.vcpkg")));
+    // The disable is persisted in settings.
+    QVERIFY(settings.disabledPluginIds().contains(QStringLiteral("builtin.vcpkg")));
 
     // Re-enable.
     QVERIFY(model.setData(model.index(vcpkgRow, 0), true, Qt::EditRole));
-    QVERIFY(model.isEnabled(QStringLiteral("builtin.vcpkg")));
+    QVERIFY(model.data(model.index(vcpkgRow, 0), int(PluginListModel::Role::Enabled)).toBool());
+    QVERIFY(!settings.disabledPluginIds().contains(QStringLiteral("builtin.vcpkg")));
 }
 
 QTEST_MAIN(UiModelsTest)

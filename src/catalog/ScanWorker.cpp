@@ -3,6 +3,7 @@
 #include "cache/Cache.h"
 #include "plugin/PluginHost.h"
 #include "provider/IProvider.h"
+#include "provider/ProcessProvider.h"
 #include "scanner/Scanner.h"
 #include "trust/TrustPolicy.h"
 
@@ -29,7 +30,7 @@ void ScanWorker::startScan(const QString& dbPath,
     if (!m_cache->open()) {
         delete m_cache;
         m_cache = nullptr;
-        emit scanFinished({}, {}, {});
+        emit scanFinished({}, {}, {}, {});
         return;
     }
 
@@ -37,6 +38,23 @@ void ScanWorker::startScan(const QString& dbPath,
     m_host->load(pluginDir, disabledPluginIds);
     m_scanner = new Scanner(m_host->providers());
     m_scanner->setTrustPolicy(TrustPolicy(trustedRoots));
+
+    // Snapshot of loaded providers for the plugins screen.
+    QVector<PluginInfo> plugins;
+    for (const IProvider* p : m_host->providers()) {
+        PluginInfo info;
+        info.id = p->pluginId().value();
+        info.isProcess = dynamic_cast<const ProcessProvider*>(p) != nullptr;
+        // The provider states are reported live; enabled reflects the user's
+        // disabled list (the host already skipped disabled manifests, but keep
+        // the flag consistent with what the UI checkbox expects).
+        info.enabled = !disabledPluginIds.contains(info.id);
+        if (const auto* pp = dynamic_cast<const ProcessProvider*>(p))
+            info.state = processProviderStateName(pp->state());
+        else
+            info.state = QStringLiteral("ready");
+        plugins.append(std::move(info));
+    }
 
     // Global tools and their environments.
     QVector<Environment> globalEnvs;
@@ -75,7 +93,7 @@ void ScanWorker::startScan(const QString& dbPath,
         emit progress(++index, environments.size());
     }
 
-    emit scanFinished(environments, tools, all);
+    emit scanFinished(environments, tools, all, plugins);
 }
 
 IProvider* ScanWorker::findProvider(const ManagerKind& kind)

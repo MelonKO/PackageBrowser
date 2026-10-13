@@ -40,6 +40,7 @@ set(PB_CORE_SOURCES
 set(PB_CORE_HEADERS
     cache/Cache.h
     catalog/CatalogService.h
+    catalog/PluginInfo.h
     catalog/ScanWorker.h
     domain/EnvironmentId.h
     domain/Environment.h

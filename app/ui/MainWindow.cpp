@@ -9,6 +9,7 @@
 #include <QListView>
 #include <QLabel>
 #include <QSplitter>
+#include <QTabWidget>
 #include <QVBoxLayout>
 #include <QTableView>
 #include <QTreeView>
@@ -16,22 +17,26 @@
 MainWindow::MainWindow(CatalogService* catalog, QWidget* parent)
     : QMainWindow(parent)
     , m_catalog(catalog)
-    , m_pluginModel(catalog->pluginHost(), &catalog->settings(), this)
+    , m_pluginModel(&catalog->settings(), this)
 {
     setWindowTitle(QStringLiteral("Package Browser"));
 
-    auto* central = new QWidget(this);
-    auto* layout = new QVBoxLayout(central);
+    // Two tabs: Packages (browser) and Plugins (providers screen).
+    m_tabs = new QTabWidget(this);
+
+    // --- Packages tab ---
+    auto* packagesPage = new QWidget(m_tabs);
+    auto* layout = new QVBoxLayout(packagesPage);
 
     auto* filterRow = new QHBoxLayout;
-    m_filter = new QLineEdit(central);
+    m_filter = new QLineEdit(packagesPage);
     m_filter->setPlaceholderText(QStringLiteral("Filter packages..."));
-    m_allToggle = new QCheckBox(QStringLiteral("All packages"), central);
+    m_allToggle = new QCheckBox(QStringLiteral("All packages"), packagesPage);
     filterRow->addWidget(m_filter, 1);
     filterRow->addWidget(m_allToggle);
     layout->addLayout(filterRow);
 
-    auto* splitter = new QSplitter(Qt::Horizontal, central);
+    auto* splitter = new QSplitter(Qt::Horizontal, packagesPage);
     m_tree = new QTreeView(splitter);
     m_tree->setModel(&m_treeModel);
     m_tree->setHeaderHidden(true);
@@ -46,16 +51,28 @@ MainWindow::MainWindow(CatalogService* catalog, QWidget* parent)
     splitter->setStretchFactor(1, 3);
     layout->addWidget(splitter);
 
-    // Plugins screen: a list of loaded providers with an enabled checkbox.
-    auto* pluginLabel = new QLabel(QStringLiteral("Plugins"), central);
-    layout->addWidget(pluginLabel);
-    m_pluginList = new QListView(central);
+    m_tabs->addTab(packagesPage, QStringLiteral("Packages"));
+
+    // --- Plugins tab ---
+    auto* pluginsPage = new QWidget(m_tabs);
+    auto* pluginsLayout = new QVBoxLayout(pluginsPage);
+    auto* pluginsHint = new QLabel(
+        QStringLiteral("Loaded package managers. Disabling a plugin skips it on the next scan."),
+        pluginsPage);
+    pluginsHint->setWordWrap(true);
+    pluginsLayout->addWidget(pluginsHint);
+    m_pluginList = new QListView(pluginsPage);
     m_pluginList->setModel(&m_pluginModel);
     m_pluginList->setUniformItemSizes(true);
-    layout->addWidget(m_pluginList, 1);
+    pluginsLayout->addWidget(m_pluginList);
+    m_tabs->addTab(pluginsPage, QStringLiteral("Plugins"));
 
-    setCentralWidget(central);
-    resize(1000, 720);
+    setCentralWidget(m_tabs);
+    resize(1000, 700);
+
+    // Prime the plugins tab with whatever snapshot is already available, then
+    // refresh after each scan completes.
+    m_pluginModel.setPlugins(m_catalog->plugins());
 
     // Show current environments, then schedule a scan.
     m_treeModel.setEnvironments(m_catalog->listEnvironments());
@@ -69,6 +86,7 @@ MainWindow::MainWindow(CatalogService* catalog, QWidget* parent)
     connect(m_catalog, &CatalogService::environmentsChanged, this, [this]() {
         m_treeModel.setEnvironments(m_catalog->listEnvironments());
     });
+    connect(m_catalog, &CatalogService::pluginsChanged, this, &MainWindow::onReloadPlugins);
     connect(m_catalog, &CatalogService::scanFinished, this, &MainWindow::onScanFinished);
 }
 
@@ -110,4 +128,12 @@ void MainWindow::onScanFinished()
     const QModelIndex current = m_tree->currentIndex();
     if (current.isValid() && !m_allToggle->isChecked())
         onEnvironmentSelected(current);
+}
+
+void MainWindow::onReloadPlugins()
+{
+    // Rebuild the plugins list from the latest worker snapshot. The enabled
+    // checkbox still reads AppSettings (the source of truth), and toggling it
+    // goes back through settings, so this resync only refreshes ids/states.
+    m_pluginModel.setPlugins(m_catalog->plugins());
 }

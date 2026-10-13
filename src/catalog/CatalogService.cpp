@@ -102,13 +102,16 @@ void CatalogService::rescan()
 
 void CatalogService::onWorkerResult(const QVector<Environment>& environments,
                                     const QVector<ToolInstance>& tools,
-                                    const QVector<Installation>& allInstallations)
+                                    const QVector<Installation>& allInstallations,
+                                    const QVector<PluginInfo>& plugins)
 {
     m_environments = environments;
     m_tools = tools;
     m_allInstallations = allInstallations;
+    m_plugins = plugins;
 
     emit environmentsChanged();
     emit installationsChanged(QString());
     emit scanFinished();
+    emit pluginsChanged();
 }
