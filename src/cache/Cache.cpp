@@ -84,8 +84,10 @@ Cache::~Cache()
 {
     if (d) {
         const QString name = d->uniqueConnectionName;
-        if (d->db.isValid())
+        if (d->db.isValid()) {
             d->db.close();
+            d->db = QSqlDatabase(); // release the handle before removing it
+        }
         if (!name.isEmpty())
             QSqlDatabase::removeDatabase(name);
         delete d;

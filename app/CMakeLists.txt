@@ -17,6 +17,8 @@ add_library(pb_ui_models STATIC
     ui/InstallationTableModel.h
     ui/PackageFilterProxy.cpp
     ui/PackageFilterProxy.h
+    ui/PluginListModel.cpp
+    ui/PluginListModel.h
 )
 
 target_include_directories(pb_ui_models PUBLIC

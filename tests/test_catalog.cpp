@@ -5,9 +5,23 @@
 #include "normalization/Pep503Normalizer.h"
 
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
+#include <QSignalSpy>
 #include <QTextStream>
 #include <QTemporaryDir>
+
+// Run the event loop until the worker reports scanFinished, so tests of the
+// async CatalogService::rescan() observe the final snapshot.
+static void runUntilScanFinished(CatalogService& svc, int timeoutMs = 5000)
+{
+    QSignalSpy spy(&svc, &CatalogService::scanFinished);
+    QElapsedTimer t;
+    t.start();
+    while (spy.count() == 0 && t.elapsed() < timeoutMs)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+    QVERIFY2(spy.count() >= 1, "scanFinished not emitted within timeout");
+}
 
 class CatalogServiceTest : public QObject
 {
@@ -18,6 +32,7 @@ private slots:
     void findPackageByNormalizedName();
     void untrustedCommandOnlyProjectStaysUntrusted();
     void findPackageNormalizesPerEcosystem();
+    void failingProcessProviderDoesNotBreakOtherEnvironments();
 };
 
 void CatalogServiceTest::initTestCase()
@@ -92,9 +107,10 @@ command = ["{exe}", "list", "--json"]
         QVERIFY(svc.initialize(dbPath, pluginDir));
         svc.settings().setScanRoots(QStringList{ projectRoot });
         svc.settings().setTrustedRoots({}); // nothing trusted
-        // rescan() runs synchronously; the command-only provider refuses to
-        // execute inside the untrusted project.
+        // rescan() is async on a worker thread; the command-only provider
+        // refuses to execute inside the untrusted project.
         svc.rescan();
+        runUntilScanFinished(svc);
     }
 
     // Read back from the cache (separate connection to the same file).
@@ -167,6 +183,7 @@ version = "version"
     svc.settings().setScanRoots(QStringList{ projectRoot });
     svc.settings().setScanMaxDepth(3);
     svc.rescan();
+    runUntilScanFinished(svc);
 
     // Look the package up with a differently-cased spelling: JS normalization is
     // case-folding, so this must match the stored "left-pad".
@@ -174,6 +191,87 @@ version = "version"
     QCOMPARE(found.size(), 1);
     QCOMPARE(found[0].nameNorm(), QStringLiteral("left-pad"));
     QCOMPARE(found[0].version(), QStringLiteral("2.0.0"));
+}
+
+void CatalogServiceTest::failingProcessProviderDoesNotBreakOtherEnvironments()
+{
+    // Stage 3 criterion: a failing provider must not affect the other
+    // environments. A healthy declarative JS provider sits next to a process
+    // provider whose script answers every request with an error; the JS
+    // project must still be discovered and listed.
+    QTemporaryDir base;
+    QVERIFY(base.isValid());
+    const QString projectRoot = base.filePath(QStringLiteral("project"));
+    QVERIFY(QDir().mkpath(projectRoot));
+    QFile marker(QDir(projectRoot).filePath(QStringLiteral("package.json")));
+    QVERIFY(marker.open(QIODevice::WriteOnly));
+    marker.close();
+    writeFile(QDir(projectRoot).filePath(QStringLiteral("node_modules/Left-Pad/package.json")),
+              "{\"name\":\"Left-Pad\",\"version\":\"1.0.0\"}");
+
+    // Healthy declarative JS provider.
+    const QString jsManifest = QStringLiteral(R"toml(
+[plugin]
+id = "testkit.js"
+api = 1
+name = "js"
+ecosystem = "javascript"
+capabilities = ["detect", "locate", "list"]
+
+[tool]
+executables = ["never-run-js"]
+
+[[locator]]
+scope = "project"
+marker_file = "package.json"
+require_dir = "node_modules"
+[locator.list_files]
+dir = "node_modules"
+manifest = "package.json"
+name = "name"
+version = "version"
+)toml");
+
+    // Broken process provider: its script errors on every request (so detect()
+    // fails and the provider is quarantined), but this must not stop the JS
+    // provider.
+    const QString failingScript = base.filePath(QStringLiteral("fail.py"));
+    writeFile(failingScript,
+              "import sys\n"
+              "sys.stderr.write('boom\\n')\n"
+              "sys.exit(1)\n");
+    QString scriptForward = failingScript;
+    scriptForward.replace(QLatin1Char('\\'), QLatin1Char('/'));
+    const QString vcpkgManifest = QStringLiteral(R"toml(
+[plugin]
+id = "builtin.vcpkg"
+api = 1
+name = "vcpkg"
+ecosystem = "cpp"
+capabilities = ["detect", "locate", "list"]
+
+[provider]
+exec = ["python", "PLACEHOLDER"]
+)toml");
+    QString vcpkgText = vcpkgManifest;
+    vcpkgText.replace(QStringLiteral("PLACEHOLDER"), scriptForward);
+
+    const QString pluginDir = base.filePath(QStringLiteral("plugins"));
+    writeFile(pluginDir + QStringLiteral("/js/plugin.toml"), jsManifest.toUtf8().constData());
+    writeFile(pluginDir + QStringLiteral("/vcpkg/plugin.toml"), vcpkgText.toUtf8().constData());
+
+    CatalogService svc;
+    QVERIFY(svc.initialize(base.filePath(QStringLiteral("cat.db")), pluginDir));
+    svc.settings().setScanRoots(QStringList{ projectRoot });
+    svc.settings().setScanMaxDepth(3);
+    svc.rescan();
+    runUntilScanFinished(svc);
+
+    // Despite the broken process provider, the healthy JS environment is
+    // discovered and its package is listed.
+    const QVector<Installation> found = svc.findPackage(QStringLiteral("left-pad"));
+    QCOMPARE(found.size(), 1);
+    QCOMPARE(found[0].version(), QStringLiteral("1.0.0"));
 }
 
 QTEST_MAIN(CatalogServiceTest)

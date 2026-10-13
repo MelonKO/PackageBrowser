@@ -1,12 +1,12 @@
 #include "catalog/CatalogService.h"
 
+#include "catalog/ScanWorker.h"
 #include "cache/Cache.h"
 #include "domain/EnvironmentId.h"
 #include "normalization/NameNormalizer.h"
-#include "provider/IProvider.h"
-#include "trust/TrustPolicy.h"
 
 #include <QHash>
+#include <QThread>
 
 CatalogService::CatalogService(QObject* parent)
     : QObject(parent)
@@ -16,24 +16,36 @@ CatalogService::CatalogService(QObject* parent)
 
 CatalogService::~CatalogService()
 {
-    delete m_cache;
+    if (m_thread) {
+        // Stop the worker and let it delete itself on its own thread, so its
+        // Cache (SQLite connection) is torn down with the correct thread
+        // affinity. m_worker is otherwise owned by the worker thread through
+        // the finished->deleteLater connection established in initialize().
+        m_thread->quit();
+        m_thread->wait();
+        delete m_thread;
+    }
 }
 
 bool CatalogService::initialize(const QString& dbPath, const QString& pluginDir)
 {
-    m_cache = new Cache(dbPath);
-    if (!m_cache->open()) {
-        delete m_cache;
-        m_cache = nullptr;
-        return false;
-    }
+    // Remember where the worker should open the cache and load providers.
+    m_dbPath = dbPath;
+    m_pluginDir = pluginDir;
 
-    // Load providers (built-in pip + one per valid plugin.toml), then build the
-    // scanner over them. Trust roots are shared across every provider; disabled
-    // plugins are skipped entirely.
-    m_host.load(pluginDir, m_settings.disabledPluginIds());
-    m_scanner = Scanner(m_host.providers());
-    m_scanner.setTrustPolicy(TrustPolicy(m_settings.trustedRoots()));
+    m_thread = new QThread(this);
+    m_worker = new ScanWorker;
+    m_worker->moveToThread(m_thread);
+
+    // The worker deletes itself on its own thread when the thread finishes, so
+    // its Cache (SQLite connection) is torn down with the right affinity.
+    connect(m_thread, &QThread::finished, m_worker, &QObject::deleteLater);
+
+    // Worker signals delivered to us as queued connections (cross-thread).
+    connect(m_worker, &ScanWorker::progress, this, &CatalogService::scanProgress);
+    connect(m_worker, &ScanWorker::scanFinished, this, &CatalogService::onWorkerResult);
+
+    m_thread->start();
     return true;
 }
 
@@ -44,26 +56,23 @@ QVector<Environment> CatalogService::listEnvironments() const
 
 QVector<Installation> CatalogService::listInstallations(const EnvironmentId& envId) const
 {
-    if (!m_cache)
-        return {};
-    return m_cache->installations(envId);
+    QVector<Installation> out;
+    for (const Installation& inst : m_allInstallations)
+        if (inst.envId() == envId)
+            out.append(inst);
+    return out;
 }
 
 QVector<Installation> CatalogService::findPackage(const QString& name) const
 {
-    if (!m_cache)
-        return {};
-
     // Normalization rules belong to the ecosystem of each environment, so the
     // query is normalized per-environment (Python PEP 503, JS/vcpkg lowercase).
     QVector<Installation> out;
-    const QVector<Installation> all = m_cache->allInstallations();
-    // Cache the ecosystem lookup: envId -> ecosystem, so the scan is O(n).
     QHash<QString, Ecosystem> ecoForEnv;
     for (const Environment& env : m_environments)
         ecoForEnv.insert(env.id().value(), env.kind().ecosystem());
 
-    for (const Installation& inst : all) {
+    for (const Installation& inst : m_allInstallations) {
         const Ecosystem eco = ecoForEnv.value(
             inst.envId().value(), Ecosystem::Python); // default: Python (legacy)
         if (inst.nameNorm() == normalizeName(eco, name))
@@ -74,75 +83,32 @@ QVector<Installation> CatalogService::findPackage(const QString& name) const
 
 QVector<Installation> CatalogService::allPackages() const
 {
-    if (!m_cache)
-        return {};
-    return m_cache->allInstallations();
+    return m_allInstallations;
 }
 
 void CatalogService::rescan()
 {
-    if (!m_cache)
-        return;
-
-    // 1. Global tools and their environments.
-    QVector<Environment> globalEnvs;
-    QVector<ToolInstance> globalTools;
-    m_scanner.scanGlobals(globalEnvs, globalTools);
-
-    // 2. Project environments from configured roots.
-    QVector<Environment> projectEnvs;
-    const QStringList roots = m_settings.scanRoots();
-    if (!roots.isEmpty())
-        m_scanner.scanRoots(roots, m_settings.scanMaxDepth(), {}, 200, projectEnvs);
-
-    m_tools = globalTools;
-    m_environments = globalEnvs + projectEnvs;
-
-    // 3. Persist tools, environments and their packages, then notify.
-    emit scanProgress(0, m_environments.size());
-    for (const ToolInstance& tool : m_tools)
-        m_cache->upsertTool(tool);
-    for (int i = 0; i < m_environments.size(); ++i) {
-        const Environment& env = m_environments[i];
-        m_cache->upsertEnvironment(env);
-        normalizeAndStoreInstallations(env);
-        emit scanProgress(i + 1, m_environments.size());
-    }
-
-    emit environmentsChanged();
-    emit scanFinished();
+    // Ask the worker to run the whole scan with the current settings snapshot.
+    QMetaObject::invokeMethod(
+        m_worker, [this]() {
+            m_worker->startScan(m_dbPath, m_pluginDir,
+                                m_settings.scanRoots(),
+                                m_settings.disabledPluginIds(),
+                                m_settings.trustedRoots(),
+                                m_settings.scanMaxDepth());
+        },
+        Qt::QueuedConnection);
 }
 
-void CatalogService::normalizeAndStoreInstallations(const Environment& env)
+void CatalogService::onWorkerResult(const QVector<Environment>& environments,
+                                    const QVector<ToolInstance>& tools,
+                                    const QVector<Installation>& allInstallations)
 {
-    if (!m_cache)
-        return;
+    m_environments = environments;
+    m_tools = tools;
+    m_allInstallations = allInstallations;
 
-    // Find the provider that owns this environment's manager kind.
-    IProvider* provider = nullptr;
-    for (IProvider* p : m_host.providers()) {
-        if (p->kind() == env.kind()) {
-            provider = p;
-            break;
-        }
-    }
-    if (!provider) {
-        m_cache->updateEnvironmentStatus(env.id(), EnvStatus::Error);
-        return;
-    }
-
-    // If the environment is untrusted, the provider reads files; otherwise it
-    // may run the manager. Either way it returns the package list to cache.
-    const auto result = provider->list(env);
-    if (!result.ok()) {
-        // An untrusted project without a file-based fallback is refused, not
-        // broken: keep the meaningful Untrusted status instead of Error.
-        const EnvStatus status = result.error == ProviderError::Untrusted
-            ? EnvStatus::Untrusted
-            : EnvStatus::Error;
-        m_cache->updateEnvironmentStatus(env.id(), status);
-        return;
-    }
-    m_cache->replaceInstallations(env.id(), result.value);
-    emit installationsChanged(env.id().value());
+    emit environmentsChanged();
+    emit installationsChanged(QString());
+    emit scanFinished();
 }

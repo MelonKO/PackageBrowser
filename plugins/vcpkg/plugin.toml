@@ -1,0 +1,13 @@
+[plugin]
+id = "builtin.vcpkg"
+api = 1
+name = "vcpkg"
+ecosystem = "cpp"
+capabilities = ["detect", "locate", "list"]
+
+# An external process provider: the host runs `python vcpkg_provider.py` and
+# speaks JSON-RPC 2.0 over stdio. All detection and reading happens in Python
+# because vcpkg needs real logic (classic vs manifest mode), which the
+# declarative [tool]/[[locator]] shape cannot express.
+[provider]
+exec = ["python", "vcpkg_provider.py"]
