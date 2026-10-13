@@ -1,10 +1,10 @@
 #pragma once
 
+#include "catalog/PluginInfo.h"
 #include "domain/Environment.h"
 #include "domain/Installation.h"
 #include "domain/ManagerKind.h"
 #include "domain/ToolInstance.h"
-#include "plugin/PluginHost.h"
 #include "settings/AppSettings.h"
 
 #include <QObject>
@@ -50,31 +50,32 @@ public:
     const AppSettings& settings() const { return m_settings; }
     AppSettings& settings() { return m_settings; }
 
-    // The plugin host on the main thread lists the loaded plugins for the
-    // plugins screen (enable/disable); it never runs provider processes here.
-    PluginHost* pluginHost() { return &m_host; }
+    // Plugins screen data: latest snapshot of loaded providers.
+    QVector<PluginInfo> plugins() const { return m_plugins; }
 
 signals:
     void environmentsChanged();
     void installationsChanged(const QString& envId);
     void scanProgress(int done, int total);
     void scanFinished();
+    void pluginsChanged();
 
 private slots:
     void onWorkerResult(const QVector<Environment>& environments,
                         const QVector<ToolInstance>& tools,
-                        const QVector<Installation>& allInstallations);
+                        const QVector<Installation>& allInstallations,
+                        const QVector<PluginInfo>& plugins);
 
 private:
     AppSettings m_settings;
-    PluginHost m_host;        // main-thread host: plugin listing only
     QThread* m_thread = nullptr;
     ScanWorker* m_worker = nullptr;
     QString m_dbPath;
     QString m_pluginDir;
 
-    // Latest snapshot; the UI reads from these, never from core objects.
+    // Latest snapshots; the UI reads from these, never from core objects.
     QVector<Environment> m_environments;
     QVector<ToolInstance> m_tools;
     QVector<Installation> m_allInstallations;
+    QVector<PluginInfo> m_plugins;
 };

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "catalog/PluginInfo.h"
 #include "domain/Environment.h"
 #include "domain/Installation.h"
 #include "domain/ToolInstance.h"
@@ -40,7 +41,8 @@ signals:
     // Full snapshot of the resulting state, delivered to the main thread.
     void scanFinished(const QVector<Environment>& environments,
                       const QVector<ToolInstance>& tools,
-                      const QVector<Installation>& allInstallations);
+                      const QVector<Installation>& allInstallations,
+                      const QVector<PluginInfo>& plugins);
 
 private:
     IProvider* findProvider(const ManagerKind& kind);

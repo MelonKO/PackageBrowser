@@ -1,20 +1,26 @@
 #pragma once
 
-#include <QAbstractListModel>
+#include "catalog/PluginInfo.h"
 
-class PluginHost;
+#include <QAbstractListModel>
+#include <QVector>
+
 class AppSettings;
 
-// Rows for the plugins screen. Each row maps to a provider the host loaded
-// (built-in pip, declarative manifests, process providers). The "enabled"
-// checkbox is driven by AppSettings.disabledPluginIds() and persists there,
-// so a toggled plugin is skipped on the next load.
+// Rows for the plugins screen. Each row maps to a loaded provider described by
+// a PluginInfo snapshot that the worker delivers after a scan, so the UI never
+// touches a live PluginHost across threads. The "enabled" checkbox is driven by
+// AppSettings.disabledPluginIds() (persisted), and toggle calls back into the
+// settings to add/remove the plugin id.
 // See docs/UI на Qt.md ("PluginListModel").
 class PluginListModel : public QAbstractListModel {
     Q_OBJECT
 
 public:
-    explicit PluginListModel(PluginHost* host, AppSettings* settings, QObject* parent = nullptr);
+    explicit PluginListModel(AppSettings* settings, QObject* parent = nullptr);
+
+    // Replace the displayed providers from a fresh snapshot.
+    void setPlugins(const QVector<PluginInfo>& plugins);
 
     enum class Role {
         Display = Qt::DisplayRole,
@@ -29,10 +35,11 @@ public:
     bool setData(const QModelIndex& index, const QVariant& value, int role = Qt::EditRole) override;
     Qt::ItemFlags flags(const QModelIndex& index) const override;
 
-    // Reverse-lookup for a provider: returns enabled state by plugin id.
-    bool isEnabled(const QString& pluginId) const;
-
 private:
-    PluginHost* m_host;       // not owned
+    // Enabled state as persisted in settings (the snapshot's `enabled` is
+    // informational; the checkbox reads the source of truth).
+    bool isEnabledFromSettings(const QString& pluginId) const;
+
     AppSettings* m_settings;  // not owned
+    QVector<PluginInfo> m_plugins;
 };
