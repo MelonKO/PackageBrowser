@@ -32,6 +32,6 @@ The repository follows git-flow rules: `main` (stable), `develop` (development),
 
 ## License
 
-Licensed under the **GNU General Public License v3.0** (GPLv3). See [LICENSE.md](LICENSE.md) for the full license text.
+Licensed under the **GNU General Public License v3.0** (GPLv3). See [LICENSE](LICENSE) for the full license text.
 
 Third-party software (Qt, toml++) and their required notices are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
