@@ -2,11 +2,11 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFileInfo>
+#include <QStandardPaths>
 #include <QSettings>
 
 namespace {
-const QString kOrg = QStringLiteral("package-browser");
-const QString kApp = QStringLiteral("package-browser");
 const QString kFileName = QStringLiteral("package-browser.ini");
 } // namespace
 
@@ -24,10 +24,21 @@ public:
 };
 
 AppSettings::AppSettings(const QString& iniPath)
-    : d(new Impl(iniPath.isEmpty()
-                     ? QDir(QCoreApplication::applicationDirPath()).filePath(kFileName)
-                     : iniPath))
+    : d(new Impl(iniPath.isEmpty() ? defaultIniPath() : iniPath))
 {
+}
+
+QString AppSettings::defaultIniPath()
+{
+    // Prefer the directory next to the executable so settings travel with the
+    // app; fall back to a user-writable config location when that directory is
+    // not writable (e.g. installed under Program Files).
+    const QString exeDir = QCoreApplication::applicationDirPath();
+    const QString exePath = QDir(exeDir).filePath(kFileName);
+    if (QFileInfo(exeDir).isWritable())
+        return exePath;
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation))
+        .filePath(kFileName);
 }
 
 AppSettings::~AppSettings()

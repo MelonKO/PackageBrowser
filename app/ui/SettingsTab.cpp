@@ -11,9 +11,11 @@
 #include <QVBoxLayout>
 
 namespace {
-enum RootRole {
-    TrustedRole = Qt::UserRole  // QListWidgetItem flag: true = trusted
-};
+// Whether the trust decision of two paths should be treated as equal.
+bool sameFolder(const QString& a, const QString& b)
+{
+    return QDir::cleanPath(a).compare(QDir::cleanPath(b), Qt::CaseInsensitive) == 0;
+}
 } // namespace
 
 SettingsTab::SettingsTab(AppSettings& settings, QWidget* parent)
@@ -67,12 +69,17 @@ void SettingsTab::loadFromSettings()
 {
     const QStringList roots = m_settings.scanRoots();
     const QStringList trusted = m_settings.trustedRoots();
+    const auto isTrusted = [&trusted](const QString& root) {
+        for (const QString& t : trusted)
+            if (sameFolder(t, root))
+                return true;
+        return false;
+    };
     m_rootsList->clear();
     for (const QString& root : roots) {
         auto* item = new QListWidgetItem(root, m_rootsList);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-        item->setCheckState(trusted.contains(root) ? Qt::Checked : Qt::Unchecked);
-        item->setData(TrustedRole, trusted.contains(root));
+        item->setCheckState(isTrusted(root) ? Qt::Checked : Qt::Unchecked);
     }
     m_depthSpin->setValue(m_settings.scanMaxDepth());
 }
@@ -86,8 +93,7 @@ void SettingsTab::addRoot()
     // Avoid duplicates: the same folder must not appear twice (case-insensitive
     // on Windows, matching TrustPolicy's normalization).
     for (int i = 0; i < m_rootsList->count(); ++i) {
-        if (QDir::cleanPath(m_rootsList->item(i)->text()).compare(
-                QDir::cleanPath(dir), Qt::CaseInsensitive) == 0) {
+        if (sameFolder(m_rootsList->item(i)->text(), dir)) {
             QMessageBox::information(this, QStringLiteral("Add folder"),
                                      QStringLiteral("This folder is already in the list."));
             return;
@@ -96,7 +102,6 @@ void SettingsTab::addRoot()
     auto* item = new QListWidgetItem(dir, m_rootsList);
     item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
     item->setCheckState(Qt::Unchecked);
-    item->setData(TrustedRole, false);
 }
 
 void SettingsTab::removeRoot()

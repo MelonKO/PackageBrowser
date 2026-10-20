@@ -33,6 +33,10 @@ public:
     void setDisabledPluginIds(const QStringList& ids);
 
 private:
+    // Resolve the settings file: next to the executable when writable, else a
+    // user-writable config location.
+    static QString defaultIniPath();
+
     class Impl;
     Impl* d;
 };

@@ -115,9 +115,13 @@ MainWindow::MainWindow(CatalogService* catalog, QWidget* parent)
             this, &MainWindow::onTableContextMenu);
 
     // The Settings tab only persists and scans on explicit "Save Settings", so
-    // edits while scanning are not lost to parallel rescans.
-    connect(m_settingsTab, &SettingsTab::saveAndScan,
-            m_catalog, &CatalogService::rescan);
+    // edits while scanning are not lost to parallel rescans. Both paths (Save
+    // on Settings and Scan on Packages) go through the same startScan() so the
+    // button is disabled and no second scan can be queued while one runs.
+    connect(m_settingsTab, &SettingsTab::saveAndScan, this, [this]() {
+        onScanStarted();
+        m_catalog->rescan();
+    });
 
     // Scan control on the Packages tab, with progress feedback.
     connect(m_scanBtn, &QPushButton::clicked, this, [this]() {
