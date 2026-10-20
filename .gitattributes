@@ -1,0 +1,38 @@
+# Normalize line endings: check in LF, check out native (CRLF on Windows).
+* text=auto
+
+# Declare text explicitly for source, config and docs.
+*.c           text
+*.cpp         text
+*.h           text
+*.hpp         text
+*.cc          text
+*.cxx         text
+*.cmake       text
+CMakeLists.txt text
+*.toml        text
+*.json        text
+*.md          text
+*.txt         text
+*.yml         text
+*.yaml        text
+*.gitignore   text
+*.gitattributes text
+
+# Build artifacts and binaries: do not touch line endings.
+*.exe         -text
+*.dll         -text
+*.so          -text
+*.dylib       -text
+*.lib         -text
+*.a           -text
+*.obj         -text
+*.o           -text
+*.db          -text
+*.sqlite      -text
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.gif         binary
+*.ico         binary
+*.ttf         binary
