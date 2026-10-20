@@ -29,3 +29,7 @@ ctest --test-dir build
 ## Branches
 
 The repository follows git-flow rules: `main` (stable), `develop` (development), `feature/*`, `release/*`, `hotfix/*`. See [AGENTS.md](AGENTS.md) for details.
+
+## License
+
+Licensed under the **GNU General Public License v3.0** (GPLv3). See [LICENSE.md](LICENSE.md) for the full license text.
