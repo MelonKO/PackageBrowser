@@ -98,14 +98,20 @@ QVector<Installation> CatalogService::allPackages() const
 
 void CatalogService::rescan()
 {
-    // Ask the worker to run the whole scan with the current settings snapshot.
+    // Snapshot the settings on the main thread and forward that snapshot to the
+    // worker by value. Reading m_settings inside the worker-thread lambda would
+    // race with the main thread (e.g. the Settings tab writing roots/depth while
+    // a scan is already queued).
+    const QStringList scanRoots = m_settings.scanRoots();
+    const QStringList disabledPlugins = m_settings.disabledPluginIds();
+    const QStringList trustedRoots = m_settings.trustedRoots();
+    const int maxDepth = m_settings.scanMaxDepth();
+
+    // Ask the worker to run the whole scan with the captured settings snapshot.
     QMetaObject::invokeMethod(
-        m_worker, [this]() {
+        m_worker, [this, scanRoots, disabledPlugins, trustedRoots, maxDepth]() {
             m_worker->startScan(m_dbPath, m_pluginDir,
-                                m_settings.scanRoots(),
-                                m_settings.disabledPluginIds(),
-                                m_settings.trustedRoots(),
-                                m_settings.scanMaxDepth());
+                                scanRoots, disabledPlugins, trustedRoots, maxDepth);
         },
         Qt::QueuedConnection);
 }

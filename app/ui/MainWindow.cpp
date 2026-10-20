@@ -1,5 +1,6 @@
 #include "app/ui/MainWindow.h"
 
+#include "app/ui/SettingsTab.h"
 #include "catalog/CatalogService.h"
 #include "domain/Environment.h"
 
@@ -70,6 +71,10 @@ MainWindow::MainWindow(CatalogService* catalog, QWidget* parent)
     pluginsLayout->addWidget(m_pluginList);
     m_tabs->addTab(pluginsPage, QStringLiteral("Plugins"));
 
+    // --- Settings tab ---
+    m_settingsTab = new SettingsTab(catalog->settings(), m_tabs);
+    m_tabs->addTab(m_settingsTab, QStringLiteral("Settings"));
+
     setCentralWidget(m_tabs);
     resize(1000, 700);
 
@@ -94,6 +99,11 @@ MainWindow::MainWindow(CatalogService* catalog, QWidget* parent)
     m_table->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_table, &QTableView::customContextMenuRequested,
             this, &MainWindow::onTableContextMenu);
+
+    // Settings tab changes are persisted immediately; run a rescan with the
+    // updated roots/depth whenever the user requests it.
+    connect(m_settingsTab, &SettingsTab::scanRequested,
+            m_catalog, &CatalogService::rescan);
 }
 
 void MainWindow::onEnvironmentSelected(const QModelIndex& index)
