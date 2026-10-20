@@ -6,7 +6,7 @@ Instructions for agents working with this repository.
 
 Desktop application in **C++/Qt 6 (Widgets)**: browsing packages of different managers (pip, npm, vcpkg) answering the question "which environment does a package come from". Architecture is described in [docs/](docs/) (in particular `docs/Package Browser.md` and `docs/Доменная модель.md`).
 
-Stack: CMake, C++17, Qt 6 Widgets, SQLite (Qt SQL). Built with CMake.
+Stack: CMake, C++17, Qt 6 Widgets, SQLite (Qt SQL), toml++ (via FetchContent), JSON-RPC 2.0 over stdio for process providers. Built with CMake. Source layout: `app/` (Qt Widgets UI), `src/` (core: domain, catalog, plugins, providers, scanner, settings), `tests/`, `plugins/`.
 
 ## Gitflow rules (mandatory)
 
