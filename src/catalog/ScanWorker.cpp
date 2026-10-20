@@ -30,7 +30,7 @@ void ScanWorker::startScan(const QString& dbPath,
     if (!m_cache->open()) {
         delete m_cache;
         m_cache = nullptr;
-        emit scanFinished({}, {}, {}, {});
+        emit scanFinished({}, {}, {}, {}, {});
         return;
     }
 
@@ -73,6 +73,7 @@ void ScanWorker::startScan(const QString& dbPath,
     for (const ToolInstance& tool : tools)
         m_cache->upsertTool(tool);
     QVector<Installation> all;
+    QVector<DependencyEdge> allDependencies;
     for (int i = 0; i < environments.size(); ++i) {
         const Environment& env = environments.at(i);
         emit progress(i, environments.size());
@@ -83,6 +84,11 @@ void ScanWorker::startScan(const QString& dbPath,
         }
 
         // A placeholder manager (executable present, no environments derived)
+        // is shown in the UI but has no real package storage of its own: skip
+        // persisting/populating it so it neither leaves a stale cache row nor
+        // triggers a pointless vcpkg invocation.
+        if (env.isPlaceholder())
+            continue;
         // is shown in the UI but has no real package storage of its own: skip
         // persisting/populating it so it neither leaves a stale cache row nor
         // triggers a pointless vcpkg invocation.
@@ -100,6 +106,7 @@ void ScanWorker::startScan(const QString& dbPath,
             m_cache->replaceEnvironment(env.id(), result.value.installations,
                                         result.value.dependencies);
             all += result.value.installations;
+            allDependencies += result.value.dependencies;
         } else {
             // Honest "I don't know": keep the previously cached packages
             // (don't wipe them with an empty list) and flag the env.
@@ -107,7 +114,7 @@ void ScanWorker::startScan(const QString& dbPath,
         }
     }
 
-    emit scanFinished(environments, tools, all, plugins);
+    emit scanFinished(environments, tools, all, allDependencies, plugins);
 }
 
 IProvider* ScanWorker::findProvider(const ManagerKind& kind)

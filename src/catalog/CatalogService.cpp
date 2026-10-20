@@ -63,6 +63,15 @@ QVector<Installation> CatalogService::listInstallations(const EnvironmentId& env
     return out;
 }
 
+QVector<DependencyEdge> CatalogService::dependencies(const EnvironmentId& envId) const
+{
+    QVector<DependencyEdge> out;
+    for (const DependencyEdge& e : m_allDependencies)
+        if (e.envId() == envId)
+            out.append(e);
+    return out;
+}
+
 QVector<Installation> CatalogService::findPackage(const QString& name) const
 {
     // Normalization rules belong to the ecosystem of each environment, so the
@@ -103,11 +112,13 @@ void CatalogService::rescan()
 void CatalogService::onWorkerResult(const QVector<Environment>& environments,
                                     const QVector<ToolInstance>& tools,
                                     const QVector<Installation>& allInstallations,
+                                    const QVector<DependencyEdge>& allDependencies,
                                     const QVector<PluginInfo>& plugins)
 {
     m_environments = environments;
     m_tools = tools;
     m_allInstallations = allInstallations;
+    m_allDependencies = allDependencies;
     m_plugins = plugins;
 
     emit environmentsChanged();

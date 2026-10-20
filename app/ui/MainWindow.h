@@ -5,6 +5,7 @@
 #include "app/ui/PackageFilterProxy.h"
 #include "app/ui/PluginListModel.h"
 
+#include <QHash>
 #include <QMainWindow>
 
 class CatalogService;
@@ -14,6 +15,7 @@ class QTabWidget;
 class QTreeView;
 class QTableView;
 class QListView;
+class QPoint;
 class QWidget;
 
 // Main application window: two tabs - "Packages" (environment tree + package
@@ -31,8 +33,13 @@ private slots:
     void onScanFinished();
     void onShowAllToggled(bool checked);
     void onReloadPlugins();
+    void onTableContextMenu(const QPoint& pos);
+    void showWhereInstalled(const QPoint& globalPos);
 
 private:
+    // envId -> label (root path) for the "where installed" dialog.
+    QHash<QString, QString> environmentLabels() const;
+
     CatalogService* m_catalog;
     EnvironmentTreeModel m_treeModel;
     InstallationTableModel m_tableModel;

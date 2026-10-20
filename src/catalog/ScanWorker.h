@@ -1,6 +1,7 @@
 #pragma once
 
 #include "catalog/PluginInfo.h"
+#include "domain/DependencyEdge.h"
 #include "domain/Environment.h"
 #include "domain/Installation.h"
 #include "domain/ToolInstance.h"
@@ -42,6 +43,7 @@ signals:
     void scanFinished(const QVector<Environment>& environments,
                       const QVector<ToolInstance>& tools,
                       const QVector<Installation>& allInstallations,
+                      const QVector<DependencyEdge>& allDependencies,
                       const QVector<PluginInfo>& plugins);
 
 private:

@@ -1,6 +1,7 @@
 #include "app/ui/MainWindow.h"
 
 #include "catalog/CatalogService.h"
+#include "domain/Environment.h"
 
 #include <QCheckBox>
 #include <QHeaderView>
@@ -8,6 +9,8 @@
 #include <QLineEdit>
 #include <QListView>
 #include <QLabel>
+#include <QMenu>
+#include <QMessageBox>
 #include <QSplitter>
 #include <QTabWidget>
 #include <QVBoxLayout>
@@ -88,6 +91,9 @@ MainWindow::MainWindow(CatalogService* catalog, QWidget* parent)
     });
     connect(m_catalog, &CatalogService::pluginsChanged, this, &MainWindow::onReloadPlugins);
     connect(m_catalog, &CatalogService::scanFinished, this, &MainWindow::onScanFinished);
+    m_table->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_table, &QTableView::customContextMenuRequested,
+            this, &MainWindow::onTableContextMenu);
 }
 
 void MainWindow::onEnvironmentSelected(const QModelIndex& index)
@@ -97,9 +103,11 @@ void MainWindow::onEnvironmentSelected(const QModelIndex& index)
     const Environment* env = m_treeModel.environmentAt(index);
     if (!env) {
         m_tableModel.setInstallations({});
+        m_tableModel.setDependencies({});
         return;
     }
     m_tableModel.setInstallations(m_catalog->listInstallations(env->id()));
+    m_tableModel.setDependencies(m_catalog->dependencies(env->id()));
 }
 
 void MainWindow::onShowAllToggled(bool checked)
@@ -107,6 +115,7 @@ void MainWindow::onShowAllToggled(bool checked)
     if (checked) {
         // Flat list across all environments.
         m_tableModel.setInstallations(m_catalog->allPackages());
+        m_tableModel.setDependencies({});
         m_allToggle->setText(QStringLiteral("All packages (*)"));
     } else {
         m_allToggle->setText(QStringLiteral("All packages"));
@@ -136,4 +145,53 @@ void MainWindow::onReloadPlugins()
     // checkbox still reads AppSettings (the source of truth), and toggling it
     // goes back through settings, so this resync only refreshes ids/states.
     m_pluginModel.setPlugins(m_catalog->plugins());
+}
+
+void MainWindow::onTableContextMenu(const QPoint& pos)
+{
+    const QModelIndex index = m_filterProxy.mapToSource(m_table->indexAt(pos));
+    if (!index.isValid())
+        return;
+
+    QMenu menu(this);
+    QAction* whereAction = menu.addAction(QStringLiteral("Where is this package installed?"));
+    connect(whereAction, &QAction::triggered, this,
+            [this, index]() { showWhereInstalled(m_table->viewport()->mapToGlobal(
+                m_table->visualRect(index).center())); });
+    menu.exec(m_table->viewport()->mapToGlobal(pos));
+}
+
+void MainWindow::showWhereInstalled(const QPoint& globalPos)
+{
+    const QModelIndex index = m_filterProxy.mapToSource(m_table->currentIndex());
+    if (!index.isValid() || index.column() != 0)
+        return;
+    const Installation* pkg = m_tableModel.packageAt(index.row());
+    if (!pkg)
+        return;
+    // "All packages" mode shows a flat list; elsewhere the current environment
+    // is selected. findPackage answers "everywhere this package exists".
+    const QVector<Installation> hits = m_catalog->findPackage(pkg->nameDisplay());
+    if (hits.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("Where installed"),
+                                 QStringLiteral("Not found in any environment."));
+        return;
+    }
+
+    QStringList lines;
+    const QHash<QString, QString> envLabel = environmentLabels();
+    for (const Installation& hit : hits) {
+        const QString label = envLabel.value(hit.envId().value());
+        lines.append(QStringLiteral("%1 (in %2)").arg(hit.nameDisplay(), label));
+    }
+    QMessageBox::information(this, QStringLiteral("Where installed"),
+                             lines.join(QLatin1Char('\n')));
+}
+
+QHash<QString, QString> MainWindow::environmentLabels() const
+{
+    QHash<QString, QString> labels;
+    for (const Environment& env : m_catalog->listEnvironments())
+        labels.insert(env.id().value(), env.root());
+    return labels;
 }
