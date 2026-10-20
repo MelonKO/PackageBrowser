@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/DependencyEdge.h"
 #include "domain/Environment.h"
 #include "domain/Installation.h"
 #include "domain/ManagerKind.h"
@@ -32,8 +33,11 @@ public:
     void markEnvironmentMissing(const EnvironmentId& id);
     void updateEnvironmentStatus(const EnvironmentId& id, EnvStatus status);
 
-    void replaceInstallations(const EnvironmentId& envId, const QVector<Installation>& packages);
+    void replaceEnvironment(const EnvironmentId& envId,
+                            const QVector<Installation>& packages,
+                            const QVector<DependencyEdge>& dependencies);
     QVector<Installation> installations(const EnvironmentId& envId) const;
+    QVector<DependencyEdge> dependencies(const EnvironmentId& envId) const;
     // All installations across every environment (used by "find package").
     QVector<Installation> allInstallations() const;
 

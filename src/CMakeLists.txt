@@ -44,6 +44,7 @@ set(PB_CORE_HEADERS
     catalog/ScanWorker.h
     domain/EnvironmentId.h
     domain/Environment.h
+    domain/DependencyEdge.h
     domain/Installation.h
     domain/ManagerKind.h
     domain/PluginId.h

@@ -43,6 +43,7 @@ bool CatalogService::initialize(const QString& dbPath, const QString& pluginDir)
 
     // Worker signals delivered to us as queued connections (cross-thread).
     connect(m_worker, &ScanWorker::progress, this, &CatalogService::scanProgress);
+    connect(m_worker, &ScanWorker::cacheLoaded, this, &CatalogService::onCacheLoaded);
     connect(m_worker, &ScanWorker::scanFinished, this, &CatalogService::onWorkerResult);
 
     m_thread->start();
@@ -60,6 +61,15 @@ QVector<Installation> CatalogService::listInstallations(const EnvironmentId& env
     for (const Installation& inst : m_allInstallations)
         if (inst.envId() == envId)
             out.append(inst);
+    return out;
+}
+
+QVector<DependencyEdge> CatalogService::dependencies(const EnvironmentId& envId) const
+{
+    QVector<DependencyEdge> out;
+    for (const DependencyEdge& e : m_allDependencies)
+        if (e.envId() == envId)
+            out.append(e);
     return out;
 }
 
@@ -100,14 +110,34 @@ void CatalogService::rescan()
         Qt::QueuedConnection);
 }
 
+void CatalogService::onCacheLoaded(const QVector<Environment>& environments,
+                                   const QVector<ToolInstance>& tools,
+                                   const QVector<Installation>& allInstallations,
+                                   const QVector<DependencyEdge>& allDependencies)
+{
+    // Paint the cached snapshot immediately (stale-while-revalidate); the full
+    // scan that follows will replace it via onWorkerResult. The plugins list is
+    // not known until providers are loaded, so leave it untouched here.
+    m_environments = environments;
+    m_tools = tools;
+    m_allInstallations = allInstallations;
+    m_allDependencies = allDependencies;
+
+    emit environmentsChanged();
+    emit installationsChanged(QString());
+    emit cacheLoaded();
+}
+
 void CatalogService::onWorkerResult(const QVector<Environment>& environments,
                                     const QVector<ToolInstance>& tools,
                                     const QVector<Installation>& allInstallations,
+                                    const QVector<DependencyEdge>& allDependencies,
                                     const QVector<PluginInfo>& plugins)
 {
     m_environments = environments;
     m_tools = tools;
     m_allInstallations = allInstallations;
+    m_allDependencies = allDependencies;
     m_plugins = plugins;
 
     emit environmentsChanged();

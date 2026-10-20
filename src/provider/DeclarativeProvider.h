@@ -23,7 +23,7 @@ public:
     ProviderResult<QVector<Environment>> locate(const ToolInstance& tool) override;
     ProviderResult<QVector<Environment>> locateAt(const QString& scanRoot) override;
     ProviderResult<QString> fingerprint(const Environment& env) override;
-    ProviderResult<QVector<Installation>> list(const Environment& env, bool withDependencies = false) override;
+    ProviderResult<ListResult> list(const Environment& env, bool withDependencies = false) override;
 
     const PluginManifest& manifest() const { return m_manifest; }
 
@@ -39,10 +39,10 @@ private:
     // Locator that produced an environment; null when none matches.
     const LocatorSpec* locatorFor(const Environment& env) const;
 
-    ProviderResult<QVector<Installation>> listFromFiles(const Environment& env,
-                                                       const LocatorSpec& locator);
-    ProviderResult<QVector<Installation>> listFromCommand(const Environment& env,
-                                                         const LocatorSpec& locator);
+    ProviderResult<ListResult> listFromFiles(const Environment& env,
+                                             const LocatorSpec& locator);
+    ProviderResult<ListResult> listFromCommand(const Environment& env,
+                                               const LocatorSpec& locator);
 
     PluginManifest m_manifest;
     // envId -> candidate tool path inside the environment (executes nothing).

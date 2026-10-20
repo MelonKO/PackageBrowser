@@ -180,10 +180,10 @@ ProviderResult<QString> ProcessProvider::fingerprint(const Environment& env)
     return result;
 }
 
-ProviderResult<QVector<Installation>> ProcessProvider::list(const Environment& env,
-                                                            bool withDependencies)
+ProviderResult<ListResult> ProcessProvider::list(const Environment& env,
+                                                 bool withDependencies)
 {
-    ProviderResult<QVector<Installation>> result;
+    ProviderResult<ListResult> result;
     QJsonObject params;
     params.insert(QStringLiteral("environment"), envToJson(env));
     params.insert(QStringLiteral("with_dependencies"), withDependencies);
@@ -200,10 +200,25 @@ ProviderResult<QVector<Installation>> ProcessProvider::list(const Environment& e
         const QString name = o.value(QStringLiteral("name")).toString();
         if (name.isEmpty())
             continue;
-        result.value.append(
+        result.value.installations.append(
             Installation(env.id(), name, name,
                          o.value(QStringLiteral("version")).toString(),
                          o.value(QStringLiteral("location")).toString()));
+    }
+    // Dependency edges are delivered in a parallel "dependencies" array only
+    // when requested; otherwise the plugin may omit it and we report none.
+    if (withDependencies) {
+        const QJsonArray deps = rpcResult.value(QStringLiteral("dependencies")).toArray();
+        for (const QJsonValue& v : deps) {
+            const QJsonObject o = v.toObject();
+            const QString from = o.value(QStringLiteral("from")).toString();
+            const QString to = o.value(QStringLiteral("to")).toString();
+            if (from.isEmpty() || to.isEmpty())
+                continue;
+            result.value.dependencies.append(
+                DependencyEdge(env.id(), from, to,
+                               o.value(QStringLiteral("constraint")).toString()));
+        }
     }
     return result;
 }

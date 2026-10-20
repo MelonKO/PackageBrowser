@@ -97,6 +97,55 @@ QVector<Installation> readVenvFromFiles(const QString& venvRoot, const Environme
     return out;
 }
 
+// Whether a venv exposes the system site-packages (pyvenv.cfg
+// `include-system-site-packages = true`). If so, returns the canonical root of
+// the base interpreter's system environment (the directory CONTAINING the
+// base interpreter's pip), which is exactly what locate() uses as the System
+// root for a system pip; only then does the inheritsFrom edge resolve to the
+// same EnvironmentId.
+bool includesSystemSitePackages(const QString& venvRoot, QString* systemRoot /*out*/)
+{
+    const QString cfgPath = QDir(venvRoot).filePath(QLatin1String("pyvenv.cfg"));
+    QFile cfg(cfgPath);
+    if (!cfg.open(QIODevice::ReadOnly | QIODevice::Text))
+        return false;
+    QTextStream ts(&cfg);
+    bool include = false;
+    QString home;
+    while (!ts.atEnd()) {
+        const QString line = ts.readLine();
+        const auto keyMatch = QRegularExpression(QStringLiteral(
+            "include-system-site-packages\\s*=\\s*([a-zA-Z]+)")).match(line);
+        if (keyMatch.hasMatch()) {
+            include = keyMatch.captured(1).compare(QLatin1String("true"), Qt::CaseInsensitive) == 0;
+            continue;
+        }
+        const auto homeMatch = QRegularExpression(QStringLiteral(
+            "home\\s*=\\s*(.+)")).match(line);
+        if (homeMatch.hasMatch())
+            home = homeMatch.captured(1).trimmed();
+    }
+    if (!include || home.isEmpty())
+        return false;
+    // pyvenv.cfg `home` is the base interpreter's prefix. Its pip lives in
+    // {home}/Scripts (Windows) or {home}/bin (POSIX); some POSIX venvs write
+    // home as the bin dir itself. locate() derives the System root as the
+    // directory containing pip, so find that directory rather than guessing.
+    const QDir homeDir(QDir::cleanPath(home));
+    QStringList candidates;
+    candidates << homeDir.filePath(QLatin1String("Scripts"))
+               << homeDir.filePath(QLatin1String("bin"))
+               << QDir::cleanPath(home);
+    for (const QString& c : candidates) {
+        const QFileInfo fi(c);
+        if (fi.isDir())
+            *systemRoot = fi.canonicalFilePath();
+    }
+    if (systemRoot->isEmpty() || !QFileInfo::exists(*systemRoot))
+        return false;
+    return true;
+}
+
 } // namespace
 
 BuiltinPipProvider::BuiltinPipProvider() = default;
@@ -188,8 +237,17 @@ ProviderResult<QVector<Environment>> BuiltinPipProvider::locateAt(const QString&
         // Safe default: no trust information reaches the provider, so a project
         // environment is read by parsing files. The scanner upgrades it to Ok
         // when its root is trusted (see TrustPolicy).
-        result.value.append(Environment(envId, kind(), Scope::Project, envRoot, toolId,
-                                        QString(), EnvStatus::Untrusted));
+        // A venv with include-system-site-packages = true inherits from the
+        // base interpreter's system environment, so surface that edge now.
+        QString systemRoot;
+        if (includesSystemSitePackages(envRoot, &systemRoot)) {
+            const auto systemId = EnvironmentId::fromHashed(kPluginId.value(), systemRoot);
+            result.value.append(Environment(envId, kind(), Scope::Project, envRoot, toolId,
+                                            systemId.value(), EnvStatus::Untrusted));
+        } else {
+            result.value.append(Environment(envId, kind(), Scope::Project, envRoot, toolId,
+                                            QString(), EnvStatus::Untrusted));
+        }
     }
     return result;
 }
@@ -232,15 +290,15 @@ ProviderResult<QString> BuiltinPipProvider::fingerprint(const Environment& env)
     return result;
 }
 
-ProviderResult<QVector<Installation>> BuiltinPipProvider::list(const Environment& env, bool withDependencies)
+ProviderResult<ListResult> BuiltinPipProvider::list(const Environment& env, bool withDependencies)
 {
-    ProviderResult<QVector<Installation>> result;
+    ProviderResult<ListResult> result;
     result.complete = true;
-    (void)withDependencies;
+    (void)withDependencies; // pip currently reports a flat list without edge data
 
     if (env.scope() == Scope::Project && env.status() == EnvStatus::Untrusted) {
         // Untrusted: read files without executing the venv's tool.
-        result.value = readVenvFromFiles(env.root(), env.id());
+        result.value.installations = readVenvFromFiles(env.root(), env.id());
         return result;
     }
 
@@ -276,6 +334,6 @@ ProviderResult<QVector<Installation>> BuiltinPipProvider::list(const Environment
         result.complete = false;
         return result;
     }
-    result.value = parsePipJson(listRun.stdOut, env.id());
+    result.value.installations = parsePipJson(listRun.stdOut, env.id());
     return result;
 }

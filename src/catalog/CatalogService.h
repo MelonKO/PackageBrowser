@@ -1,6 +1,7 @@
 #pragma once
 
 #include "catalog/PluginInfo.h"
+#include "domain/DependencyEdge.h"
 #include "domain/Environment.h"
 #include "domain/Installation.h"
 #include "domain/ManagerKind.h"
@@ -38,6 +39,7 @@ public:
     // Public read API (UI calls these; they read the latest snapshot).
     QVector<Environment> listEnvironments() const;
     QVector<Installation> listInstallations(const EnvironmentId& envId) const;
+    QVector<DependencyEdge> dependencies(const EnvironmentId& envId) const;
     QVector<Installation> findPackage(const QString& name) const;
     // Flat list of every installed package across all environments.
     QVector<Installation> allPackages() const;
@@ -54,6 +56,9 @@ public:
     QVector<PluginInfo> plugins() const { return m_plugins; }
 
 signals:
+    // Emitted when the cached snapshot is painted on startup, before the
+    // background scan finishes (stale-while-revalidate).
+    void cacheLoaded();
     void environmentsChanged();
     void installationsChanged(const QString& envId);
     void scanProgress(int done, int total);
@@ -61,9 +66,14 @@ signals:
     void pluginsChanged();
 
 private slots:
+    void onCacheLoaded(const QVector<Environment>& environments,
+                       const QVector<ToolInstance>& tools,
+                       const QVector<Installation>& allInstallations,
+                       const QVector<DependencyEdge>& allDependencies);
     void onWorkerResult(const QVector<Environment>& environments,
                         const QVector<ToolInstance>& tools,
                         const QVector<Installation>& allInstallations,
+                        const QVector<DependencyEdge>& allDependencies,
                         const QVector<PluginInfo>& plugins);
 
 private:
@@ -77,5 +87,6 @@ private:
     QVector<Environment> m_environments;
     QVector<ToolInstance> m_tools;
     QVector<Installation> m_allInstallations;
+    QVector<DependencyEdge> m_allDependencies;
     QVector<PluginInfo> m_plugins;
 };

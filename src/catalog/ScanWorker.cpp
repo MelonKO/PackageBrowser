@@ -30,9 +30,20 @@ void ScanWorker::startScan(const QString& dbPath,
     if (!m_cache->open()) {
         delete m_cache;
         m_cache = nullptr;
-        emit scanFinished({}, {}, {}, {});
+        emit scanFinished({}, {}, {}, {}, {});
         return;
     }
+
+    // Stale-while-revalidate: repaint the UI from the persisted cache right
+    // now, before any provider work, so packages show up immediately and the
+    // full scan below refreshes them in the background.
+    const QVector<Environment> cachedEnvs = m_cache->environments();
+    const QVector<ToolInstance> cachedTools = m_cache->tools();
+    const QVector<Installation> cachedInstallations = m_cache->allInstallations();
+    QVector<DependencyEdge> cachedDependencies;
+    for (const Environment& env : cachedEnvs)
+        cachedDependencies += m_cache->dependencies(env.id());
+    emit cacheLoaded(cachedEnvs, cachedTools, cachedInstallations, cachedDependencies);
 
     m_host = new PluginHost;
     m_host->load(pluginDir, disabledPluginIds);
@@ -73,6 +84,7 @@ void ScanWorker::startScan(const QString& dbPath,
     for (const ToolInstance& tool : tools)
         m_cache->upsertTool(tool);
     QVector<Installation> all;
+    QVector<DependencyEdge> allDependencies;
     for (int i = 0; i < environments.size(); ++i) {
         const Environment& env = environments.at(i);
         emit progress(i, environments.size());
@@ -88,17 +100,24 @@ void ScanWorker::startScan(const QString& dbPath,
         // triggers a pointless vcpkg invocation.
         if (env.isPlaceholder())
             continue;
+        // is shown in the UI but has no real package storage of its own: skip
+        // persisting/populating it so it neither leaves a stale cache row nor
+        // triggers a pointless vcpkg invocation.
+        if (env.isPlaceholder())
+            continue;
 
         m_cache->upsertEnvironment(env);
-        const auto result = provider->list(env);
+        const auto result = provider->list(env, /*withDependencies=*/true);
         if (!result.ok()) {
             m_cache->updateEnvironmentStatus(env.id(),
                 result.error == ProviderError::Untrusted ? EnvStatus::Untrusted
                                                          : EnvStatus::Error);
         } else if (result.complete) {
             // A complete listing is authoritative: replace what we had.
-            m_cache->replaceInstallations(env.id(), result.value);
-            all += result.value;
+            m_cache->replaceEnvironment(env.id(), result.value.installations,
+                                        result.value.dependencies);
+            all += result.value.installations;
+            allDependencies += result.value.dependencies;
         } else {
             // Honest "I don't know": keep the previously cached packages
             // (don't wipe them with an empty list) and flag the env.
@@ -106,7 +125,7 @@ void ScanWorker::startScan(const QString& dbPath,
         }
     }
 
-    emit scanFinished(environments, tools, all, plugins);
+    emit scanFinished(environments, tools, all, allDependencies, plugins);
 }
 
 IProvider* ScanWorker::findProvider(const ManagerKind& kind)

@@ -85,10 +85,13 @@ void UiModelsTest::tableColumns()
     });
 
     QCOMPARE(model.rowCount(), 1);
-    QCOMPARE(model.columnCount(), 4);
+    QCOMPARE(model.columnCount(), 5);
     QCOMPARE(model.headerData(0, Qt::Horizontal).toString(), QStringLiteral("Name"));
+    QCOMPARE(model.headerData(4, Qt::Horizontal).toString(), QStringLiteral("Depends on"));
     QCOMPARE(model.data(model.index(0, 0)).toString(), QStringLiteral("Requests"));
     QCOMPARE(model.data(model.index(0, 1)).toString(), QStringLiteral("2.31.0"));
+    // A package with no declared dependencies shows "-".
+    QCOMPARE(model.data(model.index(0, 4)).toString(), QStringLiteral("-"));
 }
 
 void UiModelsTest::filterHidesRows()

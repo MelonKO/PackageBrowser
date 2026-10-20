@@ -12,6 +12,33 @@ void InstallationTableModel::setInstallations(const QVector<Installation>& packa
     endResetModel();
 }
 
+void InstallationTableModel::setDependencies(const QVector<DependencyEdge>& dependencies)
+{
+    beginResetModel();
+    m_dependencies.clear();
+    for (const DependencyEdge& e : dependencies)
+        m_dependencies[e.fromName()].append(e.toName());
+    endResetModel();
+}
+
+void InstallationTableModel::setContent(const QVector<Installation>& packages,
+                                        const QVector<DependencyEdge>& dependencies)
+{
+    beginResetModel();
+    m_packages = packages;
+    m_dependencies.clear();
+    for (const DependencyEdge& e : dependencies)
+        m_dependencies[e.fromName()].append(e.toName());
+    endResetModel();
+}
+
+const Installation* InstallationTableModel::packageAt(int row) const
+{
+    if (row < 0 || row >= m_packages.size())
+        return nullptr;
+    return &m_packages.at(row);
+}
+
 int InstallationTableModel::rowCount(const QModelIndex& parent) const
 {
     if (parent.isValid())
@@ -23,7 +50,7 @@ int InstallationTableModel::columnCount(const QModelIndex& parent) const
 {
     if (parent.isValid())
         return 0;
-    return 4; // name, version, location, direct
+    return 5; // name, version, location, direct, depends-on
 }
 
 QVariant InstallationTableModel::data(const QModelIndex& index, int role) const
@@ -41,6 +68,10 @@ QVariant InstallationTableModel::data(const QModelIndex& index, int role) const
             if (p.isDirect().has_value())
                 return p.isDirect().value() ? QStringLiteral("yes") : QStringLiteral("no");
             return QStringLiteral("-");
+        case 4: {
+            const QStringList deps = m_dependencies.value(p.nameNorm());
+            return deps.isEmpty() ? QStringLiteral("-") : deps.join(QStringLiteral(", "));
+        }
         }
     }
     return QVariant();
@@ -55,6 +86,7 @@ QVariant InstallationTableModel::headerData(int section, Qt::Orientation orienta
     case 1: return QStringLiteral("Version");
     case 2: return QStringLiteral("Location");
     case 3: return QStringLiteral("Direct");
+    case 4: return QStringLiteral("Depends on");
     }
     return QVariant();
 }

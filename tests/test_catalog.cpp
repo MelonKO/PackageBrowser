@@ -33,6 +33,7 @@ private slots:
     void untrustedCommandOnlyProjectStaysUntrusted();
     void findPackageNormalizesPerEcosystem();
     void failingProcessProviderDoesNotBreakOtherEnvironments();
+    void cacheLoadedEmittedBeforeScanFinished();
 };
 
 void CatalogServiceTest::initTestCase()
@@ -272,6 +273,81 @@ exec = ["python", "PLACEHOLDER"]
     const QVector<Installation> found = svc.findPackage(QStringLiteral("left-pad"));
     QCOMPARE(found.size(), 1);
     QCOMPARE(found[0].version(), QStringLiteral("1.0.0"));
+}
+
+void CatalogServiceTest::cacheLoadedEmittedBeforeScanFinished()
+{
+    // Stage 4 criterion: on start, cached data must be available (via
+    // cacheLoaded) before the full background scan finishes (scanFinished).
+    QTemporaryDir base;
+    QVERIFY(base.isValid());
+    const QString projectRoot = base.filePath(QStringLiteral("project"));
+    QVERIFY(QDir().mkpath(projectRoot));
+    QFile marker(QDir(projectRoot).filePath(QStringLiteral("package.json")));
+    QVERIFY(marker.open(QIODevice::WriteOnly));
+    marker.close();
+    writeFile(QDir(projectRoot).filePath(QStringLiteral("node_modules/Lodash/package.json")),
+              "{\"name\":\"lodash\",\"version\":\"4.17.0\"}");
+
+    const QString manifestText = QStringLiteral(R"toml(
+[plugin]
+id = "testkit.js"
+api = 1
+name = "js"
+ecosystem = "javascript"
+capabilities = ["detect", "locate", "list"]
+
+[tool]
+executables = ["never-run-js"]
+
+[[locator]]
+scope = "project"
+marker_file = "package.json"
+require_dir = "node_modules"
+[locator.list_files]
+dir = "node_modules"
+manifest = "package.json"
+name = "name"
+version = "version"
+)toml");
+    const QString pluginDir = base.filePath(QStringLiteral("plugins"));
+    writeFile(pluginDir + QStringLiteral("/js/plugin.toml"), manifestText.toUtf8().constData());
+    const QString dbPath = base.filePath(QStringLiteral("cat.db"));
+
+    // First scan populates the cache.
+    {
+        CatalogService svc;
+        QVERIFY(svc.initialize(dbPath, pluginDir));
+        svc.settings().setScanRoots(QStringList{ projectRoot });
+        svc.settings().setScanMaxDepth(3);
+        svc.rescan();
+        runUntilScanFinished(svc);
+        QCOMPARE(svc.findPackage(QStringLiteral("lodash")).size(), 1);
+    }
+
+    // Second open must emit cacheLoaded with the persisted snapshot.
+    CatalogService svc;
+    QVERIFY(svc.initialize(dbPath, pluginDir));
+    svc.settings().setScanRoots(QStringList{ projectRoot });
+    svc.settings().setScanMaxDepth(3);
+
+    QSignalSpy loadedSpy(&svc, &CatalogService::cacheLoaded);
+    QSignalSpy finishedSpy(&svc, &CatalogService::scanFinished);
+    svc.rescan();
+    QElapsedTimer t;
+    t.start();
+    while (loadedSpy.count() == 0 && finishedSpy.count() == 0 && t.elapsed() < 5000)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+
+    QVERIFY2(loadedSpy.count() >= 1, "cacheLoaded not emitted");
+    QVERIFY2(finishedSpy.count() == 0, "scanFinished was already emitted before cacheLoaded");
+    // The cached snapshot already contains the package before the scan ends.
+    QCOMPARE(svc.findPackage(QStringLiteral("lodash")).size(), 1);
+
+    // ... and the full scan still completes afterwards.
+    while (finishedSpy.count() == 0 && t.elapsed() < 5000)
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+    QVERIFY2(finishedSpy.count() >= 1, "scanFinished not emitted after cacheLoaded");
 }
 
 QTEST_MAIN(CatalogServiceTest)

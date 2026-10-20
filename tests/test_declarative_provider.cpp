@@ -115,11 +115,11 @@ void DeclarativeProviderTest::readsProjectEnvironmentFromFiles()
 
     const auto listed = provider.list(located.value[0]);
     QVERIFY(listed.ok());
-    QCOMPARE(listed.value.size(), 1);
-    QCOMPARE(listed.value[0].nameNorm(), QStringLiteral("left-pad"));
-    QCOMPARE(listed.value[0].nameDisplay(), QStringLiteral("Left-Pad"));
-    QCOMPARE(listed.value[0].version(), QStringLiteral("1.3.0"));
-    QVERIFY(listed.value[0].location().endsWith(QStringLiteral("desc.json")));
+    QCOMPARE(listed.value.installations.size(), 1);
+    QCOMPARE(listed.value.installations[0].nameNorm(), QStringLiteral("left-pad"));
+    QCOMPARE(listed.value.installations[0].nameDisplay(), QStringLiteral("Left-Pad"));
+    QCOMPARE(listed.value.installations[0].version(), QStringLiteral("1.3.0"));
+    QVERIFY(listed.value.installations[0].location().endsWith(QStringLiteral("desc.json")));
 }
 
 void DeclarativeProviderTest::fingerprintChangesWhenPackagesChange()
