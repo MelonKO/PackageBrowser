@@ -97,6 +97,43 @@ QVector<Installation> readVenvFromFiles(const QString& venvRoot, const Environme
     return out;
 }
 
+// Whether a venv exposes the system site-packages (pyvenv.cfg
+// `include-system-site-packages = true`). If so, returns the canonical root of
+// the base interpreter's system environment (the directory containing the
+// interpreter's bin/Scripts), which is what locate() uses as the System root.
+bool includesSystemSitePackages(const QString& venvRoot, QString* systemRoot /*out*/)
+{
+    const QString cfgPath = QDir(venvRoot).filePath(QLatin1String("pyvenv.cfg"));
+    QFile cfg(cfgPath);
+    if (!cfg.open(QIODevice::ReadOnly | QIODevice::Text))
+        return false;
+    QTextStream ts(&cfg);
+    bool include = false;
+    QString home = venvRoot;
+    while (!ts.atEnd()) {
+        const QString line = ts.readLine();
+        const auto keyMatch = QRegularExpression(QStringLiteral(
+            "include-system-site-packages\\s*=\\s*([a-zA-Z]+)")).match(line);
+        if (keyMatch.hasMatch()) {
+            include = keyMatch.captured(1).compare(QLatin1String("true"), Qt::CaseInsensitive) == 0;
+            continue;
+        }
+        const auto homeMatch = QRegularExpression(QStringLiteral(
+            "home\\s*=\\s*(.+)")).match(line);
+        if (homeMatch.hasMatch())
+            home = homeMatch.captured(1).trimmed();
+    }
+    if (!include)
+        return false;
+    // home points at the base interpreter's bin/Scripts dir; the system
+    // environment root is its parent (where site-packages and pip.exe live).
+    const QString baseDir = QFileInfo(QDir::cleanPath(home)).dir().path();
+    if (!QFileInfo::exists(baseDir))
+        return false;
+    *systemRoot = baseDir;
+    return true;
+}
+
 } // namespace
 
 BuiltinPipProvider::BuiltinPipProvider() = default;
@@ -188,8 +225,17 @@ ProviderResult<QVector<Environment>> BuiltinPipProvider::locateAt(const QString&
         // Safe default: no trust information reaches the provider, so a project
         // environment is read by parsing files. The scanner upgrades it to Ok
         // when its root is trusted (see TrustPolicy).
-        result.value.append(Environment(envId, kind(), Scope::Project, envRoot, toolId,
-                                        QString(), EnvStatus::Untrusted));
+        // A venv with include-system-site-packages = true inherits from the
+        // base interpreter's system environment, so surface that edge now.
+        QString systemRoot;
+        if (includesSystemSitePackages(envRoot, &systemRoot)) {
+            const auto systemId = EnvironmentId::fromHashed(kPluginId.value(), systemRoot);
+            result.value.append(Environment(envId, kind(), Scope::Project, envRoot, toolId,
+                                            systemId.value(), EnvStatus::Untrusted));
+        } else {
+            result.value.append(Environment(envId, kind(), Scope::Project, envRoot, toolId,
+                                            QString(), EnvStatus::Untrusted));
+        }
     }
     return result;
 }

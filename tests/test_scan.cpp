@@ -21,6 +21,7 @@ private slots:
     void usesDeclarativeMarkersAndSkipDirs();
     void systemEnvNotSubjectToTrust();
     void scanRootMatchingSkipDirIsStillWalked();
+    void venvInheritsFromSystemWhenIncludeSystemSitePackages();
     void managerWithoutEnvironmentsIsStillShown();
 };
 
@@ -72,6 +73,49 @@ void ShellScanTest::locateVenvFromScannedRoot()
     QCOMPARE(envs[0].root(), QDir(venvRoot).canonicalPath());
     // Not trusted by default -> Untrusted.
     QCOMPARE(envs[0].status(), EnvStatus::Untrusted);
+}
+
+void ShellScanTest::venvInheritsFromSystemWhenIncludeSystemSitePackages()
+{
+    // A venv with include-system-site-packages = true exposes the system
+    // site-packages; the project environment must carry an inheritsFrom edge
+    // to the base interpreter's system environment.
+    QTemporaryDir work;
+    QVERIFY(work.isValid());
+    const QString venvRoot = makeBareVenv(work.filePath(QStringLiteral("app/.venv")));
+    // A real base-interpreter prefix so the helper's existence check passes
+    // (the inheritsFrom edge targets this directory as the system root).
+    const QString baseInterpPath = work.filePath(QStringLiteral("Python312"));
+    QVERIFY(QDir().mkpath(baseInterpPath));
+    const QString baseInterp = QDir(baseInterpPath).canonicalPath();
+    {
+        QFile cfg(QDir(venvRoot).filePath(QStringLiteral("pyvenv.cfg")));
+        if (cfg.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream ts(&cfg);
+            // home points at the base interpreter's bin/Scripts dir.
+            ts << "home = " << baseInterp << "/bin\n"
+               << "include-system-site-packages = true\n";
+            cfg.close();
+        }
+    }
+
+    BuiltinPipProvider provider;
+    const auto envId = EnvironmentId::fromHashed(provider.pluginId().value(),
+                                                 QDir(venvRoot).canonicalPath());
+    const auto located = provider.locateAt(venvRoot);
+    QVERIFY(located.ok());
+    QCOMPARE(located.value.size(), 1);
+    QCOMPARE(located.value[0].id().value(), envId.value());
+    // The base interpreter prefix is the system environment root.
+    const auto systemId = EnvironmentId::fromHashed(provider.pluginId().value(), baseInterp);
+    QCOMPARE(located.value[0].inheritsFrom(), systemId.value());
+
+    // Without the flag the edge is absent (the existing default case).
+    const QString plainVenv = makeBareVenv(work.filePath(QStringLiteral("plain/.venv")));
+    const auto locatedPlain = provider.locateAt(plainVenv);
+    QVERIFY(locatedPlain.ok());
+    QCOMPARE(locatedPlain.value.size(), 1);
+    QVERIFY(locatedPlain.value[0].inheritsFrom().isEmpty());
 }
 
 void ShellScanTest::untrustedReadsFromFiles()
