@@ -16,13 +16,15 @@ class QTreeView;
 class QTableView;
 class QListView;
 class QPoint;
+class QPushButton;
+class QProgressBar;
 class QWidget;
 class SettingsTab;
 
 // Main application window: three tabs - "Packages" (environment tree + package
-// table + filter), "Plugins" (list of loaded providers with enable toggles) and
-// "Settings" (project scan roots, trusted roots, scan depth).
-// See docs/UI на Qt.md.
+// table + filter + Scan + scan progress), "Plugins" (list of loaded providers
+// with enable toggles) and "Settings" (scan roots with trusted checkboxes,
+// scan depth, Save). See docs/UI на Qt.md.
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -37,6 +39,8 @@ private slots:
     void onReloadPlugins();
     void onTableContextMenu(const QPoint& pos);
     void showWhereInstalled(const QModelIndex& sourceIndex);
+    void onScanStarted();
+    void onScanProgress(int done, int total);
 
 private:
     // envId -> label (root path) for the "where installed" dialog.
@@ -54,4 +58,6 @@ private:
     QListView* m_pluginList = nullptr;
     QLineEdit* m_filter = nullptr;
     QCheckBox* m_allToggle = nullptr;
+    QPushButton* m_scanBtn = nullptr;
+    QProgressBar* m_scanProgress = nullptr;
 };

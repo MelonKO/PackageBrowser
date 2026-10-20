@@ -12,6 +12,8 @@
 #include <QLabel>
 #include <QMenu>
 #include <QMessageBox>
+#include <QProgressBar>
+#include <QPushButton>
 #include <QSplitter>
 #include <QTabWidget>
 #include <QVBoxLayout>
@@ -54,6 +56,18 @@ MainWindow::MainWindow(CatalogService* catalog, QWidget* parent)
     splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 3);
     layout->addWidget(splitter);
+
+    // Scan control + progress live where the results are shown.
+    auto* scanRow = new QHBoxLayout;
+    m_scanBtn = new QPushButton(QStringLiteral("Scan"), packagesPage);
+    m_scanProgress = new QProgressBar(packagesPage);
+    m_scanProgress->setRange(0, 100);
+    m_scanProgress->setValue(0);
+    m_scanProgress->setTextVisible(false);
+    m_scanProgress->setVisible(false);
+    scanRow->addWidget(m_scanBtn);
+    scanRow->addWidget(m_scanProgress, 1);
+    layout->addLayout(scanRow);
 
     m_tabs->addTab(packagesPage, QStringLiteral("Packages"));
 
@@ -100,10 +114,22 @@ MainWindow::MainWindow(CatalogService* catalog, QWidget* parent)
     connect(m_table, &QTableView::customContextMenuRequested,
             this, &MainWindow::onTableContextMenu);
 
-    // Settings tab changes are persisted immediately; run a rescan with the
-    // updated roots/depth whenever the user requests it.
-    connect(m_settingsTab, &SettingsTab::scanRequested,
+    // The Settings tab only persists and scans on explicit "Save Settings", so
+    // edits while scanning are not lost to parallel rescans.
+    connect(m_settingsTab, &SettingsTab::saveAndScan,
             m_catalog, &CatalogService::rescan);
+
+    // Scan control on the Packages tab, with progress feedback.
+    connect(m_scanBtn, &QPushButton::clicked, this, [this]() {
+        onScanStarted();
+        m_catalog->rescan();
+    });
+    connect(m_catalog, &CatalogService::scanProgress,
+            this, &MainWindow::onScanProgress);
+    connect(m_catalog, &CatalogService::scanFinished, this, [this]() {
+        m_scanProgress->setVisible(false);
+        m_scanBtn->setEnabled(true);
+    });
 }
 
 void MainWindow::onEnvironmentSelected(const QModelIndex& index)
@@ -204,4 +230,19 @@ QHash<QString, QString> MainWindow::environmentLabels() const
     for (const Environment& env : m_catalog->listEnvironments())
         labels.insert(env.id().value(), env.root());
     return labels;
+}
+
+void MainWindow::onScanStarted()
+{
+    m_scanProgress->setVisible(true);
+    m_scanProgress->setValue(0);
+    m_scanBtn->setEnabled(false);
+}
+
+void MainWindow::onScanProgress(int done, int total)
+{
+    if (!m_scanProgress->isVisible())
+        m_scanProgress->setVisible(true);
+    if (total > 0)
+        m_scanProgress->setValue(static_cast<int>(100.0 * done / total));
 }

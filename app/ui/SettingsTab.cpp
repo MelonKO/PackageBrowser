@@ -2,97 +2,18 @@
 
 #include <QDir>
 #include <QFileDialog>
-#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QPushButton>
-#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
-#include <functional>
-
 namespace {
-
-// Case-insensitive folder lookup so the same folder cannot be added twice with
-// different casing (the scanner and TrustPolicy both treat paths as
-// case-insensitive on Windows).
-bool listContainsFolder(const QListWidget* list, const QString& dir)
-{
-    const QString normalized = QDir::cleanPath(dir);
-    for (int i = 0; i < list->count(); ++i) {
-        if (QDir::cleanPath(list->item(i)->text()).compare(
-                normalized, Qt::CaseInsensitive) == 0)
-            return true;
-    }
-    return false;
-}
-
-// Write the current widget list back to AppSettings.
-void persistList(AppSettings& settings,
-                 void (AppSettings::*setter)(const QStringList&),
-                 QListWidget* list)
-{
-    QStringList values;
-    for (int i = 0; i < list->count(); ++i)
-        values.append(list->item(i)->text());
-    (settings.*setter)(values);
-}
-
-// Build a folder list with Add/Remove buttons, bound to one AppSettings
-// QStringList (scan roots or trusted roots). Populated once at construction.
-// onChanged fires after a successful add/remove so the owner can rescan.
-QWidget* makeFolderGroup(AppSettings& settings,
-                         QStringList (AppSettings::*getter)() const,
-                         void (AppSettings::*setter)(const QStringList&),
-                         QListWidget** outList,
-                         std::function<void()> onChanged)
-{
-    auto* box = new QGroupBox;
-    auto* boxLayout = new QVBoxLayout(box);
-
-    auto* list = new QListWidget(box);
-    *outList = list;
-    const QStringList values = (settings.*getter)();
-    for (const QString& v : values)
-        list->addItem(v);
-    boxLayout->addWidget(list);
-
-    auto* row = new QHBoxLayout;
-    auto* addBtn = new QPushButton(QStringLiteral("Add folder…"), box);
-    auto* removeBtn = new QPushButton(QStringLiteral("Remove"), box);
-    row->addWidget(addBtn);
-    row->addWidget(removeBtn);
-    row->addStretch(1);
-    boxLayout->addLayout(row);
-    removeBtn->setEnabled(false);
-
-    QObject::connect(list, &QListWidget::itemSelectionChanged, box,
-                     [removeBtn]() { removeBtn->setEnabled(true); });
-
-    QObject::connect(addBtn, &QPushButton::clicked, box, [box, &settings, setter, list, onChanged]() {
-        const QString dir = QFileDialog::getExistingDirectory(
-            box, QStringLiteral("Select folder"));
-        if (dir.isEmpty())
-            return;
-        if (!listContainsFolder(list, dir))
-            list->addItem(dir);
-        persistList(settings, setter, list);
-        onChanged();
-    });
-    QObject::connect(removeBtn, &QPushButton::clicked, box, [removeBtn, &settings, setter, list, onChanged]() {
-        const int row = list->currentRow();
-        if (row < 0)
-            return;
-        delete list->takeItem(row);
-        removeBtn->setEnabled(false);
-        persistList(settings, setter, list);
-        onChanged();
-    });
-    return box;
-}
-
+enum RootRole {
+    TrustedRole = Qt::UserRole  // QListWidgetItem flag: true = trusted
+};
 } // namespace
 
 SettingsTab::SettingsTab(AppSettings& settings, QWidget* parent)
@@ -102,54 +23,105 @@ SettingsTab::SettingsTab(AppSettings& settings, QWidget* parent)
     auto* layout = new QVBoxLayout(this);
 
     auto* hint = new QLabel(
-        QStringLiteral("Choose the project folders to scan for environments. "
-                       "Trusted folders allow the manager tool to run (pip, npm); "
-                       "others are read from files only, without executing them."),
+        QStringLiteral("Project folders to scan for environments. Mark a folder "
+                       "as trusted to let its manager tool run (pip, npm); "
+                       "untrusted folders are read from files only."),
         this);
     hint->setWordWrap(true);
     layout->addWidget(hint);
 
-    auto* group = new QGroupBox(QStringLiteral("Scan roots"), this);
-    auto* groupLayout = new QVBoxLayout(group);
-    auto* scanRootGroup = makeFolderGroup(
-        m_settings, &AppSettings::scanRoots, &AppSettings::setScanRoots,
-        &m_scanRootsList, [this]() { emit scanRequested(); });
-    groupLayout->addWidget(scanRootGroup);
-    layout->addWidget(group);
+    m_rootsList = new QListWidget(this);
+    m_rootsList->setAlternatingRowColors(true);
+    layout->addWidget(m_rootsList);
 
-    auto* trustedGroup = new QGroupBox(QStringLiteral("Trusted roots"), this);
-    auto* trustedLayout = new QVBoxLayout(trustedGroup);
-    auto* trustedRootWidget = makeFolderGroup(
-        m_settings, &AppSettings::trustedRoots, &AppSettings::setTrustedRoots,
-        &m_trustedRootsList, [this]() { emit scanRequested(); });
-    trustedLayout->addWidget(trustedRootWidget);
-    layout->addWidget(trustedGroup);
+    auto* row = new QHBoxLayout;
+    auto* addBtn = new QPushButton(QStringLiteral("Add folder…"), this);
+    auto* removeBtn = new QPushButton(QStringLiteral("Remove"), this);
+    row->addWidget(addBtn);
+    row->addWidget(removeBtn);
+    row->addStretch(1);
+    layout->addLayout(row);
 
     auto* depthRow = new QHBoxLayout;
     auto* depthLabel = new QLabel(QStringLiteral("Max scan depth:"), this);
     m_depthSpin = new QSpinBox(this);
     m_depthSpin->setRange(1, 10);
-    {
-        // Load the persisted depth without firing valueChanged (which would
-        // trigger a spurious rescan before the tab is wired up).
-        const QSignalBlocker blocker(m_depthSpin);
-        m_depthSpin->setValue(m_settings.scanMaxDepth());
-    }
     depthRow->addWidget(depthLabel);
     depthRow->addWidget(m_depthSpin);
     depthRow->addStretch(1);
     layout->addLayout(depthRow);
 
-    auto* scanBtn = new QPushButton(QStringLiteral("Scan"), this);
-    scanBtn->setDefault(true);
-    layout->addWidget(scanBtn, 0, Qt::AlignRight);
+    auto* saveBtn = new QPushButton(QStringLiteral("Save Settings"), this);
+    saveBtn->setDefault(true);
+    layout->addWidget(saveBtn, 0, Qt::AlignRight);
     layout->addStretch(1);
 
-    // Every change (roots, trusted roots, depth) and the explicit Scan button
-    // trigger a rescan so the view reflects the new folders.
-    connect(m_depthSpin, &QSpinBox::valueChanged, this, [this](int v) {
-        m_settings.setScanMaxDepth(v);
-        emit scanRequested();
-    });
-    connect(scanBtn, &QPushButton::clicked, this, &SettingsTab::scanRequested);
+    connect(addBtn, &QPushButton::clicked, this, &SettingsTab::addRoot);
+    connect(removeBtn, &QPushButton::clicked, this, &SettingsTab::removeRoot);
+    connect(saveBtn, &QPushButton::clicked, this, &SettingsTab::save);
+
+    loadFromSettings();
+}
+
+void SettingsTab::loadFromSettings()
+{
+    const QStringList roots = m_settings.scanRoots();
+    const QStringList trusted = m_settings.trustedRoots();
+    m_rootsList->clear();
+    for (const QString& root : roots) {
+        auto* item = new QListWidgetItem(root, m_rootsList);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setCheckState(trusted.contains(root) ? Qt::Checked : Qt::Unchecked);
+        item->setData(TrustedRole, trusted.contains(root));
+    }
+    m_depthSpin->setValue(m_settings.scanMaxDepth());
+}
+
+void SettingsTab::addRoot()
+{
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, QStringLiteral("Select folder to scan"));
+    if (dir.isEmpty())
+        return;
+    // Avoid duplicates: the same folder must not appear twice (case-insensitive
+    // on Windows, matching TrustPolicy's normalization).
+    for (int i = 0; i < m_rootsList->count(); ++i) {
+        if (QDir::cleanPath(m_rootsList->item(i)->text()).compare(
+                QDir::cleanPath(dir), Qt::CaseInsensitive) == 0) {
+            QMessageBox::information(this, QStringLiteral("Add folder"),
+                                     QStringLiteral("This folder is already in the list."));
+            return;
+        }
+    }
+    auto* item = new QListWidgetItem(dir, m_rootsList);
+    item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+    item->setCheckState(Qt::Unchecked);
+    item->setData(TrustedRole, false);
+}
+
+void SettingsTab::removeRoot()
+{
+    const int row = m_rootsList->currentRow();
+    if (row < 0)
+        return;
+    delete m_rootsList->takeItem(row);
+}
+
+void SettingsTab::save()
+{
+    QStringList roots;
+    QStringList trusted;
+    for (int i = 0; i < m_rootsList->count(); ++i) {
+        QListWidgetItem* item = m_rootsList->item(i);
+        const QString path = item->text();
+        if (path.isEmpty())
+            continue;
+        roots.append(path);
+        if (item->checkState() == Qt::Checked)
+            trusted.append(path);
+    }
+    m_settings.setScanRoots(roots);
+    m_settings.setTrustedRoots(trusted);
+    m_settings.setScanMaxDepth(m_depthSpin->value());
+    emit saveAndScan();
 }
