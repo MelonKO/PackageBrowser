@@ -92,8 +92,10 @@ void ShellScanTest::venvInheritsFromSystemWhenIncludeSystemSitePackages()
         QFile cfg(QDir(venvRoot).filePath(QStringLiteral("pyvenv.cfg")));
         if (cfg.open(QIODevice::WriteOnly | QIODevice::Text)) {
             QTextStream ts(&cfg);
-            // home points at the base interpreter's bin/Scripts dir.
-            ts << "home = " << baseInterp << "/bin\n"
+            // Real venvs write the base interpreter's prefix (e.g. C:\Python312),
+            // not a bin subdirectory; locate() derives the System root as the
+            // directory containing the base pip (here the prefix itself).
+            ts << "home = " << baseInterp << "\n"
                << "include-system-site-packages = true\n";
             cfg.close();
         }

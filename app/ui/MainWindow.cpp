@@ -102,20 +102,19 @@ void MainWindow::onEnvironmentSelected(const QModelIndex& index)
         return;
     const Environment* env = m_treeModel.environmentAt(index);
     if (!env) {
-        m_tableModel.setInstallations({});
-        m_tableModel.setDependencies({});
+        m_tableModel.setContent({}, {});
         return;
     }
-    m_tableModel.setInstallations(m_catalog->listInstallations(env->id()));
-    m_tableModel.setDependencies(m_catalog->dependencies(env->id()));
+    m_tableModel.setContent(m_catalog->listInstallations(env->id()),
+                            m_catalog->dependencies(env->id()));
 }
 
 void MainWindow::onShowAllToggled(bool checked)
 {
     if (checked) {
-        // Flat list across all environments.
-        m_tableModel.setInstallations(m_catalog->allPackages());
-        m_tableModel.setDependencies({});
+        // Flat list across all environments (edges are per-environment, so the
+        // flat view shows none).
+        m_tableModel.setContent(m_catalog->allPackages(), {});
         m_allToggle->setText(QStringLiteral("All packages (*)"));
     } else {
         m_allToggle->setText(QStringLiteral("All packages"));
@@ -153,20 +152,21 @@ void MainWindow::onTableContextMenu(const QPoint& pos)
     if (!index.isValid())
         return;
 
+    // Bring the clicked row under the mouse into focus so the follow-up action
+    // targets it; the context menu must act on the row the user right-clicked,
+    // not on whatever row happens to be the currently selected one.
+    m_table->setCurrentIndex(index);
+
     QMenu menu(this);
     QAction* whereAction = menu.addAction(QStringLiteral("Where is this package installed?"));
     connect(whereAction, &QAction::triggered, this,
-            [this, index]() { showWhereInstalled(m_table->viewport()->mapToGlobal(
-                m_table->visualRect(index).center())); });
+            [this, index]() { showWhereInstalled(index); });
     menu.exec(m_table->viewport()->mapToGlobal(pos));
 }
 
-void MainWindow::showWhereInstalled(const QPoint& globalPos)
+void MainWindow::showWhereInstalled(const QModelIndex& sourceIndex)
 {
-    const QModelIndex index = m_filterProxy.mapToSource(m_table->currentIndex());
-    if (!index.isValid() || index.column() != 0)
-        return;
-    const Installation* pkg = m_tableModel.packageAt(index.row());
+    const Installation* pkg = m_tableModel.packageAt(sourceIndex.row());
     if (!pkg)
         return;
     // "All packages" mode shows a flat list; elsewhere the current environment

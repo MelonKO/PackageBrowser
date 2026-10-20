@@ -99,8 +99,10 @@ QVector<Installation> readVenvFromFiles(const QString& venvRoot, const Environme
 
 // Whether a venv exposes the system site-packages (pyvenv.cfg
 // `include-system-site-packages = true`). If so, returns the canonical root of
-// the base interpreter's system environment (the directory containing the
-// interpreter's bin/Scripts), which is what locate() uses as the System root.
+// the base interpreter's system environment (the directory CONTAINING the
+// base interpreter's pip), which is exactly what locate() uses as the System
+// root for a system pip; only then does the inheritsFrom edge resolve to the
+// same EnvironmentId.
 bool includesSystemSitePackages(const QString& venvRoot, QString* systemRoot /*out*/)
 {
     const QString cfgPath = QDir(venvRoot).filePath(QLatin1String("pyvenv.cfg"));
@@ -109,7 +111,7 @@ bool includesSystemSitePackages(const QString& venvRoot, QString* systemRoot /*o
         return false;
     QTextStream ts(&cfg);
     bool include = false;
-    QString home = venvRoot;
+    QString home;
     while (!ts.atEnd()) {
         const QString line = ts.readLine();
         const auto keyMatch = QRegularExpression(QStringLiteral(
@@ -123,14 +125,24 @@ bool includesSystemSitePackages(const QString& venvRoot, QString* systemRoot /*o
         if (homeMatch.hasMatch())
             home = homeMatch.captured(1).trimmed();
     }
-    if (!include)
+    if (!include || home.isEmpty())
         return false;
-    // home points at the base interpreter's bin/Scripts dir; the system
-    // environment root is its parent (where site-packages and pip.exe live).
-    const QString baseDir = QFileInfo(QDir::cleanPath(home)).dir().path();
-    if (!QFileInfo::exists(baseDir))
+    // pyvenv.cfg `home` is the base interpreter's prefix. Its pip lives in
+    // {home}/Scripts (Windows) or {home}/bin (POSIX); some POSIX venvs write
+    // home as the bin dir itself. locate() derives the System root as the
+    // directory containing pip, so find that directory rather than guessing.
+    const QDir homeDir(QDir::cleanPath(home));
+    QStringList candidates;
+    candidates << homeDir.filePath(QLatin1String("Scripts"))
+               << homeDir.filePath(QLatin1String("bin"))
+               << QDir::cleanPath(home);
+    for (const QString& c : candidates) {
+        const QFileInfo fi(c);
+        if (fi.isDir())
+            *systemRoot = fi.canonicalFilePath();
+    }
+    if (systemRoot->isEmpty() || !QFileInfo::exists(*systemRoot))
         return false;
-    *systemRoot = baseDir;
     return true;
 }
 

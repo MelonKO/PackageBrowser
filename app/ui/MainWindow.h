@@ -34,7 +34,7 @@ private slots:
     void onShowAllToggled(bool checked);
     void onReloadPlugins();
     void onTableContextMenu(const QPoint& pos);
-    void showWhereInstalled(const QPoint& globalPos);
+    void showWhereInstalled(const QModelIndex& sourceIndex);
 
 private:
     // envId -> label (root path) for the "where installed" dialog.

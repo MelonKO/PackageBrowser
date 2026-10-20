@@ -19,6 +19,9 @@ public:
 
     void setInstallations(const QVector<Installation>& packages);
     void setDependencies(const QVector<DependencyEdge>& dependencies);
+    // Set packages and their dependency edges together (single model reset).
+    void setContent(const QVector<Installation>& packages,
+                    const QVector<DependencyEdge>& dependencies);
 
     // Package at the given display row; null when row is out of range.
     const Installation* packageAt(int row) const;

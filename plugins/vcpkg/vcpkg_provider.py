@@ -204,16 +204,15 @@ def _list_from_files(env_root):
 
     Packages live under <root>/vcpkg_installed[/<triplet>]/share/<pkg>/ and are
     identified by vcpkg.spdx.json, whose packages[] carries SPDXRef-port with a
-    clean name + versionInfo. Dependency edges between ports come from
-    dependsOn (each entry is the SPDXID of another port package) mapped through
-    the same packages[]. Nothing is executed. Returns (installations, edges).
+    clean name + versionInfo. Dependency edges between ports come from the port
+    package's dependsOn (each entry is an SPDX-ID naming another port), decoded
+    by _port_from_ref. Nothing is executed. Returns (installations, edges).
     """
     installs = []
     installed_dir = os.path.join(env_root, "vcpkg_installed")
     if not os.path.isdir(installed_dir):
         return installs, []
 
-    from_id = {}   # SPDXRef-port id -> clean port name
     edges = []
     # Both <root>/vcpkg_installed/<triplet>/share and /share are observed.
     for share_base in _share_candidates(installed_dir):
@@ -225,7 +224,6 @@ def _list_from_files(env_root):
             name, version, deps = _parse_spdx(spdx)
             if not name:
                 continue
-            from_id["SPDXRef-port"] = name
             for dep in deps:
                 dep_name = _port_from_ref(dep)
                 if dep_name:
@@ -253,14 +251,16 @@ def _port_from_ref(spdx_id):
     """Convert an SPDX relationship target (e.g. 'SPDXRef-port-yaml-cpp') to a
     port name (e.g. 'yaml-cpp'); returns None when it is not a port reference.
     """
-    if not isinstance(spdx_id, str)\
-            or not spdx_id.startswith("SPDXRef-port") \
-            or spdx_id == "SPDXRef-port":
+    if not isinstance(spdx_id, str):
         return None
     prefix = "SPDXRef-port-"
+    if not spdx_id.startswith(prefix):
+        return None
+    variant = spdx_id[len(prefix):]
+    if not variant:
+        return None
     # The reference is "<SPDXRef-port-<triplet>--<name>>" in some layouts, or
     # "<SPDXRef-port-<name>>" in others; take the trailing segment.
-    variant = spdx_id[len(prefix):]
     if "--" in variant:
         # host triplet prefix, e.g. "x64-windows--yaml-cpp"
         return variant.split("--", 1)[1].lower()

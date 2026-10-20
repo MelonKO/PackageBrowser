@@ -21,6 +21,17 @@ void InstallationTableModel::setDependencies(const QVector<DependencyEdge>& depe
     endResetModel();
 }
 
+void InstallationTableModel::setContent(const QVector<Installation>& packages,
+                                        const QVector<DependencyEdge>& dependencies)
+{
+    beginResetModel();
+    m_packages = packages;
+    m_dependencies.clear();
+    for (const DependencyEdge& e : dependencies)
+        m_dependencies[e.fromName()].append(e.toName());
+    endResetModel();
+}
+
 const Installation* InstallationTableModel::packageAt(int row) const
 {
     if (row < 0 || row >= m_packages.size())
