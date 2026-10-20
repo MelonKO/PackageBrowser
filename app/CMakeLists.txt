@@ -39,3 +39,14 @@ target_include_directories(package_browser PRIVATE
 )
 
 target_link_libraries(package_browser PRIVATE pb_core pb_ui_models Qt6::Widgets Qt6::Sql)
+
+# Copy the plugin folder next to the executable so providers (plugin.toml and
+# any process scripts) are found at runtime: the app resolves plugins relative
+# to QCoreApplication::applicationDirPath().
+set(PB_PLUGINS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../plugins)
+add_custom_command(TARGET package_browser POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${PB_PLUGINS_SRC}"
+        "$<TARGET_FILE_DIR:package_browser>/plugins"
+    COMMENT "Copying plugins next to package_browser"
+)
