@@ -46,7 +46,7 @@ author:
 | `InstallationTableModel` | `QAbstractTableModel` | пакеты одного окружения или всех; подгрузка частями через `canFetchMore` / `fetchMore` |
 | `PackageFilterProxy` | `QSortFilterProxyModel` | фильтры по тексту, экосистеме, менеджеру и `scope` |
 | `PluginListModel` | `QAbstractListModel` | экран плагинов: состояние, ошибки, переключатель «включён» |
-| `SettingsTab` | `QWidget` | экран настроек: папки сканирования (project roots) и доверенные папки (Add/Remove через `QFileDialog`), глубина сканирования, запуск скана. Изменения сразу пишутся в `AppSettings` (QSettings) и запускают пересканирование |
+| `SettingsTab` | `QWidget` | экран настроек: один список папок сканирования (project roots) с чекбоксом «доверенная» у каждой (trusted), глубина сканирования; кнопка «Save Settings» пишет всё в `AppSettings` (INI-файл) и запускает скан. Изменения накапливаются и применяются только по кнопке — авто-сканирования на каждую правку нет |
 
 ## Потоки и взаимодействие с ядром
 

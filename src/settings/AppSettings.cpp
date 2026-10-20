@@ -1,26 +1,48 @@
 #include "settings/AppSettings.h"
 
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QStandardPaths>
 #include <QSettings>
 
 namespace {
-const QString kOrg = QStringLiteral("package-browser");
-const QString kApp = QStringLiteral("package-browser");
-}
+const QString kFileName = QStringLiteral("package-browser.ini");
+} // namespace
 
 class AppSettings::Impl {
 public:
+    explicit Impl(const QString& iniPath)
+        : settings(iniPath, QSettings::IniFormat)
+    {
+        settings.beginGroup(QStringLiteral("scan"));
+    }
+
+    ~Impl() { settings.endGroup(); }
+
     QSettings settings;
 };
 
-AppSettings::AppSettings()
-    : d(new Impl)
+AppSettings::AppSettings(const QString& iniPath)
+    : d(new Impl(iniPath.isEmpty() ? defaultIniPath() : iniPath))
 {
-    d->settings.beginGroup(QStringLiteral("scan"));
+}
+
+QString AppSettings::defaultIniPath()
+{
+    // Prefer the directory next to the executable so settings travel with the
+    // app; fall back to a user-writable config location when that directory is
+    // not writable (e.g. installed under Program Files).
+    const QString exeDir = QCoreApplication::applicationDirPath();
+    const QString exePath = QDir(exeDir).filePath(kFileName);
+    if (QFileInfo(exeDir).isWritable())
+        return exePath;
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation))
+        .filePath(kFileName);
 }
 
 AppSettings::~AppSettings()
 {
-    d->settings.endGroup();
     delete d;
 }
 
