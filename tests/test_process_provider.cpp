@@ -285,8 +285,16 @@ void ProcessProviderTest::vcpkgPluginReadsProjectSpdx()
     QVERIFY(QDir().mkpath(pkgDir));
     QFile spdx(QDir(pkgDir).filePath(QStringLiteral("vcpkg.spdx.json")));
     QVERIFY(spdx.open(QIODevice::WriteOnly));
-    spdx.write("{\"packages\":[{\"SPDXID\":\"SPDXRef-port\",\"name\":\"brotli\","
-               "\"versionInfo\":\"1.2.0\"}]}");
+    // Realistic vcpkg SPDX: the port package lists dependsOn referencing other
+    // port packages (here brotli depends on the runtime port brotlicommon).
+    spdx.write("{\"spdxVersion\":\"SPDX-2.2\","
+               "\"packages\":["
+               "{\"SPDXID\":\"SPDXRef-port\",\"name\":\"brotli\","
+               "\"versionInfo\":\"1.2.0\","
+               "\"dependsOn\":[\"SPDXRef-port-x64-windows--brotlicommon\"]},"
+               "{\"SPDXID\":\"SPDXRef-binary\",\"name\":\"brotli:x64-windows\","
+               "\"versionInfo\":\"abc\"}"
+               "]}");
     spdx.close();
 
     QString text = providerManifest();
@@ -307,11 +315,15 @@ void ProcessProviderTest::vcpkgPluginReadsProjectSpdx()
     QCOMPARE(locatedProject.value[0].scope(), Scope::Project);
     QCOMPARE(locatedProject.value[0].root(), QDir(proj).canonicalPath());
 
-    const auto listedProject = provider.list(locatedProject.value[0]);
+    const auto listedProject = provider.list(locatedProject.value[0], /*withDependencies=*/true);
     QVERIFY(listedProject.ok());
     QCOMPARE(listedProject.value.installations.size(), 1);
     QCOMPARE(listedProject.value.installations[0].nameNorm(), QStringLiteral("brotli"));
     QCOMPARE(listedProject.value.installations[0].version(), QStringLiteral("1.2.0"));
+    // The SPDX port's dependsOn maps to a dependency edge: brotli -> brotlicommon.
+    QCOMPARE(listedProject.value.dependencies.size(), 1);
+    QCOMPARE(listedProject.value.dependencies[0].fromName(), QStringLiteral("brotli"));
+    QCOMPARE(listedProject.value.dependencies[0].toName(), QStringLiteral("brotlicommon"));
 }
 
 QTEST_MAIN(ProcessProviderTest)

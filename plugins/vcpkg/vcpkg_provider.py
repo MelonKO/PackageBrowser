@@ -121,13 +121,13 @@ def list_packages(env):
         return {"installations": [], "complete": True}
 
     if env.get("scope") == "project":
-        installs = _list_from_files(root)
+        installs, deps = _list_from_files(root)
         # File-based scanning cannot distinguish "empty" from "cannot read"
         # robustly; treat a missing install dir as genuinely empty.
-        return {"installations": installs, "complete": True}
+        return {"installations": installs, "dependencies": deps, "complete": True}
 
     installs, ok = _list_from_vcpkg(root)
-    return {"installations": installs, "complete": ok}
+    return {"installations": installs, "dependencies": [], "complete": ok}
 
 
 _VCPKG_LIST_CACHE = {"root": None, "data": None, "ok": False}
@@ -204,13 +204,17 @@ def _list_from_files(env_root):
 
     Packages live under <root>/vcpkg_installed[/<triplet>]/share/<pkg>/ and are
     identified by vcpkg.spdx.json, whose packages[] carries SPDXRef-port with a
-    clean name + versionInfo. Nothing is executed.
+    clean name + versionInfo. Dependency edges between ports come from
+    dependsOn (each entry is the SPDXID of another port package) mapped through
+    the same packages[]. Nothing is executed. Returns (installations, edges).
     """
     installs = []
     installed_dir = os.path.join(env_root, "vcpkg_installed")
     if not os.path.isdir(installed_dir):
-        return installs
+        return installs, []
 
+    from_id = {}   # SPDXRef-port id -> clean port name
+    edges = []
     # Both <root>/vcpkg_installed/<triplet>/share and /share are observed.
     for share_base in _share_candidates(installed_dir):
         for pkg in sorted(os.listdir(share_base)):
@@ -218,15 +222,49 @@ def _list_from_files(env_root):
             spdx = os.path.join(pkg_dir, "vcpkg.spdx.json")
             if not os.path.isdir(pkg_dir) or not os.path.isfile(spdx):
                 continue
-            name, version = _parse_spdx(spdx)
-            if name:
-                installs.append({
-                    "name": name,
-                    "version": version,
-                    "location": pkg_dir,
-                })
+            name, version, deps = _parse_spdx(spdx)
+            if not name:
+                continue
+            from_id["SPDXRef-port"] = name
+            for dep in deps:
+                dep_name = _port_from_ref(dep)
+                if dep_name:
+                    edges.append({"from": name, "to": dep_name, "constraint": ""})
+            installs.append({
+                "name": name,
+                "version": version,
+                "location": pkg_dir,
+            })
     installs.sort(key=lambda i: i["name"])
-    return installs
+    # De-duplicate edges: the same port pair may appear via multiple share dirs.
+    seen = set()
+    unique_edges = []
+    for e in edges:
+        key = (e["from"], e["to"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_edges.append(e)
+    unique_edges.sort(key=lambda e: (e["from"], e["to"]))
+    return installs, unique_edges
+
+
+def _port_from_ref(spdx_id):
+    """Convert an SPDX relationship target (e.g. 'SPDXRef-port-yaml-cpp') to a
+    port name (e.g. 'yaml-cpp'); returns None when it is not a port reference.
+    """
+    if not isinstance(spdx_id, str)\
+            or not spdx_id.startswith("SPDXRef-port") \
+            or spdx_id == "SPDXRef-port":
+        return None
+    prefix = "SPDXRef-port-"
+    # The reference is "<SPDXRef-port-<triplet>--<name>>" in some layouts, or
+    # "<SPDXRef-port-<name>>" in others; take the trailing segment.
+    variant = spdx_id[len(prefix):]
+    if "--" in variant:
+        # host triplet prefix, e.g. "x64-windows--yaml-cpp"
+        return variant.split("--", 1)[1].lower()
+    return variant.lower()
 
 
 def _share_candidates(installed_dir):
@@ -249,13 +287,21 @@ def _parse_spdx(path):
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             doc = json.load(fh)
     except (OSError, json.JSONDecodeError):
-        return "", ""
+        return "", "", []
     # packages[] has both SPDXRef-port (clean name + versionInfo) and
     # SPDXRef-binary (name=name:triplet, versionInfo=abi hash). Take "port".
+    # The port package also carries dependsOn, a list of SPDX-IDs the port
+    # directly depends on (other port packages, or SPDXRef-binary for features).
+    deps = []
     for pkg in doc.get("packages", []):
         if pkg.get("SPDXID") == "SPDXRef-port":
-            return pkg.get("name", ""), pkg.get("versionInfo", "") or ""
-    return "", ""
+            dep_refs = pkg.get("dependsOn", []) or []
+            # A dependency on another port carries the "SPDXRef-port-..." id;
+            # keep only those (feature refs to SPDXRef-binary are not ports).
+            deps = [r for r in dep_refs
+                    if isinstance(r, str) and r.startswith("SPDXRef-port-")]
+            return pkg.get("name", ""), pkg.get("versionInfo", "") or "", deps
+    return "", "", []
 
 
 _HANDLERS = {

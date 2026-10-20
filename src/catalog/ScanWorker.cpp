@@ -107,7 +107,7 @@ void ScanWorker::startScan(const QString& dbPath,
             continue;
 
         m_cache->upsertEnvironment(env);
-        const auto result = provider->list(env);
+        const auto result = provider->list(env, /*withDependencies=*/true);
         if (!result.ok()) {
             m_cache->updateEnvironmentStatus(env.id(),
                 result.error == ProviderError::Untrusted ? EnvStatus::Untrusted
