@@ -56,6 +56,9 @@ public:
     QVector<PluginInfo> plugins() const { return m_plugins; }
 
 signals:
+    // Emitted when the cached snapshot is painted on startup, before the
+    // background scan finishes (stale-while-revalidate).
+    void cacheLoaded();
     void environmentsChanged();
     void installationsChanged(const QString& envId);
     void scanProgress(int done, int total);
@@ -63,6 +66,10 @@ signals:
     void pluginsChanged();
 
 private slots:
+    void onCacheLoaded(const QVector<Environment>& environments,
+                       const QVector<ToolInstance>& tools,
+                       const QVector<Installation>& allInstallations,
+                       const QVector<DependencyEdge>& allDependencies);
     void onWorkerResult(const QVector<Environment>& environments,
                         const QVector<ToolInstance>& tools,
                         const QVector<Installation>& allInstallations,

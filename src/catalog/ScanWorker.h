@@ -39,6 +39,13 @@ public slots:
 
 signals:
     void progress(int done, int total);
+    // Delivered at the very start of a scan, read straight from the persisted
+    // cache before any provider work. Lets the UI paint cached data immediately
+    // (stale-while-revalidate) while the full scan runs in the background.
+    void cacheLoaded(const QVector<Environment>& environments,
+                     const QVector<ToolInstance>& tools,
+                     const QVector<Installation>& allInstallations,
+                     const QVector<DependencyEdge>& allDependencies);
     // Full snapshot of the resulting state, delivered to the main thread.
     void scanFinished(const QVector<Environment>& environments,
                       const QVector<ToolInstance>& tools,

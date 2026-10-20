@@ -34,6 +34,17 @@ void ScanWorker::startScan(const QString& dbPath,
         return;
     }
 
+    // Stale-while-revalidate: repaint the UI from the persisted cache right
+    // now, before any provider work, so packages show up immediately and the
+    // full scan below refreshes them in the background.
+    const QVector<Environment> cachedEnvs = m_cache->environments();
+    const QVector<ToolInstance> cachedTools = m_cache->tools();
+    const QVector<Installation> cachedInstallations = m_cache->allInstallations();
+    QVector<DependencyEdge> cachedDependencies;
+    for (const Environment& env : cachedEnvs)
+        cachedDependencies += m_cache->dependencies(env.id());
+    emit cacheLoaded(cachedEnvs, cachedTools, cachedInstallations, cachedDependencies);
+
     m_host = new PluginHost;
     m_host->load(pluginDir, disabledPluginIds);
     m_scanner = new Scanner(m_host->providers());
