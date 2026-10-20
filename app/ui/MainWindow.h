@@ -19,8 +19,9 @@ class QPoint;
 class QWidget;
 class SettingsTab;
 
-// Main application window: two tabs - "Packages" (environment tree + package
-// table + filter) and "Plugins" (list of loaded providers with enable toggles).
+// Main application window: three tabs - "Packages" (environment tree + package
+// table + filter), "Plugins" (list of loaded providers with enable toggles) and
+// "Settings" (project scan roots, trusted roots, scan depth).
 // See docs/UI на Qt.md.
 class MainWindow : public QMainWindow {
     Q_OBJECT

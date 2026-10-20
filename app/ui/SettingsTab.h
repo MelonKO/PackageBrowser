@@ -11,8 +11,8 @@ class QPushButton;
 
 // Settings screen: which project folders to scan, which of them are trusted
 // (so their manager tools may run), and the scan depth. Changes are persisted
-// immediately through AppSettings; a rescan is triggered by the user or
-// automatically on change. See docs/UI на Qt.md.
+// immediately through AppSettings and each triggers a rescan, so the view
+// reflects the new folders. See docs/UI на Qt.md.
 class SettingsTab : public QWidget {
     Q_OBJECT
 
