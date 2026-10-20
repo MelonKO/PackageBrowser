@@ -13,7 +13,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            qt-version: "6.6.3"
+            qt-arch: ""
+          - os: windows-latest
+            qt-version: "6.6.3"
+            qt-arch: "win64_mingw"
     steps:
       - uses: actions/checkout@v4
 
@@ -27,15 +33,34 @@ jobs:
         if: runner.os == 'Windows'
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.6.3"
-          arch: "win64_mingw"
+          version: ${{ matrix.qt-version }}
+          arch: ${{ matrix.qt-arch }}
           cache: true
 
-      - name: Configure
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        env:
+          QT_ROOT: ${{ env.Qt6_DIR }}
+        run: |
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=gcc `
+            -DCMAKE_CXX_COMPILER=g++ `
+            -DCMAKE_PREFIX_PATH="$env:Qt6_DIR"
 
       - name: Build
         run: cmake --build build --config Release
 
-      - name: Test
+      - name: Test (Linux)
+        if: runner.os == 'Linux'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
         run: ctest --test-dir build --output-on-failure
