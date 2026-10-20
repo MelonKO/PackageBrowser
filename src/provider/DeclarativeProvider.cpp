@@ -236,11 +236,11 @@ ProviderResult<QString> DeclarativeProvider::fingerprint(const Environment& env)
     return result;
 }
 
-ProviderResult<QVector<Installation>> DeclarativeProvider::list(const Environment& env,
-                                                                bool withDependencies)
+ProviderResult<ListResult> DeclarativeProvider::list(const Environment& env,
+                                                     bool withDependencies)
 {
-    (void)withDependencies; // the MVP list is flat
-    ProviderResult<QVector<Installation>> result;
+    (void)withDependencies; // declarative managers currently report flat lists
+    ProviderResult<ListResult> result;
     const LocatorSpec* locator = locatorFor(env);
     if (!locator) {
         result.error = ProviderError::EnvBroken;
@@ -278,10 +278,10 @@ const LocatorSpec* DeclarativeProvider::locatorFor(const Environment& env) const
     return nullptr;
 }
 
-ProviderResult<QVector<Installation>> DeclarativeProvider::listFromFiles(const Environment& env,
-                                                                        const LocatorSpec& locator)
+ProviderResult<ListResult> DeclarativeProvider::listFromFiles(const Environment& env,
+                                                              const LocatorSpec& locator)
 {
-    ProviderResult<QVector<Installation>> result;
+    ProviderResult<ListResult> result;
     const ListFilesSpec& spec = *locator.listFiles;
     const Ecosystem ecosystem = m_manifest.kind().ecosystem();
 
@@ -307,16 +307,16 @@ ProviderResult<QVector<Installation>> DeclarativeProvider::listFromFiles(const E
         const QString name = obj.value(spec.nameKey).toString();
         if (name.isEmpty())
             continue;
-        result.value.append(Installation(env.id(), normalizeName(ecosystem, name), name,
-                                         obj.value(spec.versionKey).toString(), manifestPath));
+        result.value.installations.append(Installation(env.id(), normalizeName(ecosystem, name), name,
+                                                       obj.value(spec.versionKey).toString(), manifestPath));
     }
     return result;
 }
 
-ProviderResult<QVector<Installation>> DeclarativeProvider::listFromCommand(const Environment& env,
-                                                                          const LocatorSpec& locator)
+ProviderResult<ListResult> DeclarativeProvider::listFromCommand(const Environment& env,
+                                                                const LocatorSpec& locator)
 {
-    ProviderResult<QVector<Installation>> result;
+    ProviderResult<ListResult> result;
     const ListJsonSpec& spec = *locator.listJson;
 
     if (env.scope() == Scope::Project && env.status() == EnvStatus::Untrusted) {
@@ -367,10 +367,11 @@ ProviderResult<QVector<Installation>> DeclarativeProvider::listFromCommand(const
     const QJsonValue document = doc.isArray() ? QJsonValue(doc.array()) : QJsonValue(doc.object());
     const QJsonValue container = pb::jsonAtPath(document, spec.arrayPath);
     if (!pb::extractInstallations(container, spec.nameKey, spec.versionKey,
-                                  m_manifest.kind().ecosystem(), env.id(), result.value)) {
+                                  m_manifest.kind().ecosystem(), env.id(),
+                                  result.value.installations)) {
         result.error = ProviderError::ParseFailed;
         result.complete = false;
-        result.value.clear();
+        result.value.installations.clear();
         return result;
     }
     return result;

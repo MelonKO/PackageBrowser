@@ -22,7 +22,7 @@ public:
     ProviderResult<QVector<Environment>> locate(const ToolInstance& tool) override;
     ProviderResult<QVector<Environment>> locateAt(const QString& scanRoot) override;
     ProviderResult<QString> fingerprint(const Environment& env) override;
-    ProviderResult<QVector<Installation>> list(const Environment& env, bool withDependencies = false) override;
+    ProviderResult<ListResult> list(const Environment& env, bool withDependencies = false) override;
 
 private:
     // envId -> candidate tool path inside the environment, so list() does not

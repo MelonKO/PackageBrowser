@@ -232,15 +232,15 @@ ProviderResult<QString> BuiltinPipProvider::fingerprint(const Environment& env)
     return result;
 }
 
-ProviderResult<QVector<Installation>> BuiltinPipProvider::list(const Environment& env, bool withDependencies)
+ProviderResult<ListResult> BuiltinPipProvider::list(const Environment& env, bool withDependencies)
 {
-    ProviderResult<QVector<Installation>> result;
+    ProviderResult<ListResult> result;
     result.complete = true;
-    (void)withDependencies;
+    (void)withDependencies; // pip currently reports a flat list without edge data
 
     if (env.scope() == Scope::Project && env.status() == EnvStatus::Untrusted) {
         // Untrusted: read files without executing the venv's tool.
-        result.value = readVenvFromFiles(env.root(), env.id());
+        result.value.installations = readVenvFromFiles(env.root(), env.id());
         return result;
     }
 
@@ -276,6 +276,6 @@ ProviderResult<QVector<Installation>> BuiltinPipProvider::list(const Environment
         result.complete = false;
         return result;
     }
-    result.value = parsePipJson(listRun.stdOut, env.id());
+    result.value.installations = parsePipJson(listRun.stdOut, env.id());
     return result;
 }

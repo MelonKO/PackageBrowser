@@ -170,9 +170,9 @@ void ProcessProviderTest::detectListsToolInstances()
 
     const auto listed = provider.list(located.value[0]);
     QVERIFY(listed.ok());
-    QCOMPARE(listed.value.size(), 1);
-    QCOMPARE(listed.value[0].nameNorm(), QStringLiteral("zlib"));
-    QCOMPARE(listed.value[0].version(), QStringLiteral("1.3"));
+    QCOMPARE(listed.value.installations.size(), 1);
+    QCOMPARE(listed.value.installations[0].nameNorm(), QStringLiteral("zlib"));
+    QCOMPARE(listed.value.installations[0].version(), QStringLiteral("1.3"));
 }
 
 void ProcessProviderTest::quarantinesAfterRepeatedFailures()
@@ -309,9 +309,9 @@ void ProcessProviderTest::vcpkgPluginReadsProjectSpdx()
 
     const auto listedProject = provider.list(locatedProject.value[0]);
     QVERIFY(listedProject.ok());
-    QCOMPARE(listedProject.value.size(), 1);
-    QCOMPARE(listedProject.value[0].nameNorm(), QStringLiteral("brotli"));
-    QCOMPARE(listedProject.value[0].version(), QStringLiteral("1.2.0"));
+    QCOMPARE(listedProject.value.installations.size(), 1);
+    QCOMPARE(listedProject.value.installations[0].nameNorm(), QStringLiteral("brotli"));
+    QCOMPARE(listedProject.value.installations[0].version(), QStringLiteral("1.2.0"));
 }
 
 QTEST_MAIN(ProcessProviderTest)

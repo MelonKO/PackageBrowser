@@ -89,10 +89,10 @@ void ShellScanTest::untrustedReadsFromFiles()
 
     const auto result = provider.list(env);
     QVERIFY(result.ok());
-    QCOMPARE(result.value.size(), 1);
-    QCOMPARE(result.value[0].nameNorm(), QStringLiteral("requests"));
-    QCOMPARE(result.value[0].nameDisplay(), QStringLiteral("Requests"));
-    QCOMPARE(result.value[0].version(), QStringLiteral("2.31.0"));
+    QCOMPARE(result.value.installations.size(), 1);
+    QCOMPARE(result.value.installations[0].nameNorm(), QStringLiteral("requests"));
+    QCOMPARE(result.value.installations[0].nameDisplay(), QStringLiteral("Requests"));
+    QCOMPARE(result.value.installations[0].version(), QStringLiteral("2.31.0"));
 }
 
 void ShellScanTest::trustedRootUpgradesStatus()
@@ -290,7 +290,7 @@ public:
     ProviderResult<QVector<Environment>> locate(const ToolInstance&) override { return {}; }
     ProviderResult<QVector<Environment>> locateAt(const QString&) override { return {}; }
     ProviderResult<QString> fingerprint(const Environment&) override { return {}; }
-    ProviderResult<QVector<Installation>> list(const Environment&, bool) override { return {}; }
+    ProviderResult<ListResult> list(const Environment&, bool) override { return {}; }
     const PluginId& pluginId() const override { return id; }
     const ManagerKind& kind() const override { return managerKind; }
     bool hasCapability(Capability) const override { return true; }

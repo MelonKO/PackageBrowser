@@ -1,5 +1,6 @@
 #pragma once
 
+#include "domain/DependencyEdge.h"
 #include "domain/Environment.h"
 #include "domain/Installation.h"
 #include "domain/ManagerKind.h"
@@ -42,6 +43,15 @@ enum class Capability {
     List
 };
 
+// The payload of the list operation: packages plus, when requested and
+// supported, the dependency edges between them within the same environment.
+// A provider that does not support edges returns an empty dependencies list
+// (honest "I don't know"), never a fabricated one.
+struct ListResult {
+    QVector<Installation> installations;
+    QVector<DependencyEdge> dependencies;
+};
+
 // The provider contract: four pure read operations. They never mutate the
 // environment, so they are safe to repeat, time out, and run in parallel.
 // See docs/Плагины и JSON-RPC.md ("Provider contract").
@@ -63,9 +73,10 @@ public:
     // Cheap string that changes when the environment's content changes.
     virtual ProviderResult<QString> fingerprint(const Environment& env) = 0;
 
-    // List packages (with dependencies only if explicitly requested and supported).
-    virtual ProviderResult<QVector<Installation>>
-    list(const Environment& env, bool withDependencies = false) = 0;
+    // List packages, plus dependency edges when explicitly requested and the
+    // provider supports them. Edges are empty for providers/modes that cannot
+    // report dependencies (honest "I don't know").
+    virtual ProviderResult<ListResult> list(const Environment& env, bool withDependencies = false) = 0;
 
     // Hints for the scanner. A marker file makes a directory an environment
     // root, so the walk must not descend into it; a skip dir is never walked
