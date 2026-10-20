@@ -32,6 +32,8 @@ add_executable(package_browser
     main.cpp
     ui/MainWindow.cpp
     ui/MainWindow.h
+    ui/SettingsTab.cpp
+    ui/SettingsTab.h
 )
 
 target_include_directories(package_browser PRIVATE
