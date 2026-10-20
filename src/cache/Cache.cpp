@@ -245,7 +245,8 @@ void Cache::updateEnvironmentStatus(const EnvironmentId& id, EnvStatus status)
     q.exec();
 }
 
-void Cache::replaceInstallations(const EnvironmentId& envId, const QVector<Installation>& packages)
+void Cache::replaceEnvironment(const EnvironmentId& envId, const QVector<Installation>& packages,
+                               const QVector<DependencyEdge>& dependencies)
 {
     if (!d->db.transaction())
         return;
@@ -255,6 +256,11 @@ void Cache::replaceInstallations(const EnvironmentId& envId, const QVector<Insta
     del.prepare(QStringLiteral("DELETE FROM installation WHERE env_id = :env_id"));
     del.bindValue(QStringLiteral(":env_id"), envId.value());
     ok = ok && del.exec();
+
+    QSqlQuery delDep(d->db);
+    delDep.prepare(QStringLiteral("DELETE FROM dependency WHERE env_id = :env_id"));
+    delDep.bindValue(QStringLiteral(":env_id"), envId.value());
+    ok = ok && delDep.exec();
 
     if (ok) {
         QSqlQuery ins(d->db);
@@ -272,6 +278,23 @@ void Cache::replaceInstallations(const EnvironmentId& envId, const QVector<Insta
             else
                 ins.bindValue(QStringLiteral(":is_direct"), QVariant(QVariant::Int));
             if (!ins.exec()) {
+                ok = false;
+                break;
+            }
+        }
+    }
+
+    if (ok) {
+        QSqlQuery insDep(d->db);
+        insDep.prepare(QStringLiteral(
+            "INSERT INTO dependency (env_id, from_name, to_name, constraint_text) "
+            "VALUES (:env_id, :from_name, :to_name, :constraint)"));
+        for (const DependencyEdge& e : dependencies) {
+            insDep.bindValue(QStringLiteral(":env_id"), envId.value());
+            insDep.bindValue(QStringLiteral(":from_name"), e.fromName());
+            insDep.bindValue(QStringLiteral(":to_name"), e.toName());
+            insDep.bindValue(QStringLiteral(":constraint"), e.constraint().isEmpty() ? QVariant(QVariant::String) : QVariant(e.constraint()));
+            if (!insDep.exec()) {
                 ok = false;
                 break;
             }
@@ -301,6 +324,23 @@ QVector<Installation> Cache::installations(const EnvironmentId& envId) const
         out.append(Installation(EnvironmentId::fromValue(envIdValue), q.value(1).toString(),
                                 q.value(2).toString(), q.value(3).toString(),
                                 q.value(4).toString(), direct));
+    }
+    return out;
+}
+
+QVector<DependencyEdge> Cache::dependencies(const EnvironmentId& envId) const
+{
+    QVector<DependencyEdge> out;
+    QSqlQuery q(d->db);
+    q.prepare(QStringLiteral(
+        "SELECT env_id, from_name, to_name, constraint_text "
+        "FROM dependency WHERE env_id = :env_id ORDER BY from_name, to_name"));
+    q.bindValue(QStringLiteral(":env_id"), envId.value());
+    if (!q.exec()) return out;
+    while (q.next()) {
+        out.append(DependencyEdge(EnvironmentId::fromValue(q.value(0).toString()),
+                                  q.value(1).toString(), q.value(2).toString(),
+                                  q.value(3).toString()));
     }
     return out;
 }

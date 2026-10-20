@@ -68,11 +68,14 @@ void CacheTest::replaceInstallations()
     const ManagerKind kind(PluginId(QStringLiteral("builtin.pip")), Ecosystem::Python);
     cache.upsertEnvironment(Environment(envId, kind, Scope::Project, QStringLiteral("/work/app/.venv")));
 
-    cache.replaceInstallations(envId, {
+    cache.replaceEnvironment(envId, {
         Installation(envId, QStringLiteral("requests"), QStringLiteral("Requests"),
                      QStringLiteral("2.31.0")),
         Installation(envId, QStringLiteral("urllib3"), QStringLiteral("urllib3"),
                      QStringLiteral("2.0.7")),
+    }, {
+        DependencyEdge(envId, QStringLiteral("requests"), QStringLiteral("urllib3"),
+                       QStringLiteral(">=2.0.0")),
     });
 
     auto pkgs = cache.installations(envId);
@@ -80,14 +83,22 @@ void CacheTest::replaceInstallations()
     QCOMPARE(pkgs[0].nameNorm(), QStringLiteral("requests"));
     QCOMPARE(pkgs[1].nameNorm(), QStringLiteral("urllib3"));
 
-    // Replacing wipes the previous set.
-    cache.replaceInstallations(envId, {
+    // Dependencies are stored alongside their environment.
+    const auto deps = cache.dependencies(envId);
+    QCOMPARE(deps.size(), 1);
+    QCOMPARE(deps[0].fromName(), QStringLiteral("requests"));
+    QCOMPARE(deps[0].toName(), QStringLiteral("urllib3"));
+    QCOMPARE(deps[0].constraint(), QStringLiteral(">=2.0.0"));
+
+    // Replacing wipes the previous set of packages and dependencies.
+    cache.replaceEnvironment(envId, {
         Installation(envId, QStringLiteral("requests"), QStringLiteral("Requests"),
                      QStringLiteral("2.32.0")),
-    });
+    }, {});
     pkgs = cache.installations(envId);
     QCOMPARE(pkgs.size(), 1);
     QCOMPARE(pkgs[0].version(), QStringLiteral("2.32.0"));
+    QCOMPARE(cache.dependencies(envId).size(), 0);
 
     const auto all = cache.allInstallations();
     QCOMPARE(all.size(), 1);

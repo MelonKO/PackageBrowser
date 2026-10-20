@@ -97,7 +97,8 @@ void ScanWorker::startScan(const QString& dbPath,
                                                          : EnvStatus::Error);
         } else if (result.complete) {
             // A complete listing is authoritative: replace what we had.
-            m_cache->replaceInstallations(env.id(), result.value.installations);
+            m_cache->replaceEnvironment(env.id(), result.value.installations,
+                                        result.value.dependencies);
             all += result.value.installations;
         } else {
             // Honest "I don't know": keep the previously cached packages
