@@ -1,26 +1,37 @@
 #include "settings/AppSettings.h"
 
+#include <QCoreApplication>
+#include <QDir>
 #include <QSettings>
 
 namespace {
 const QString kOrg = QStringLiteral("package-browser");
 const QString kApp = QStringLiteral("package-browser");
-}
+const QString kFileName = QStringLiteral("package-browser.ini");
+} // namespace
 
 class AppSettings::Impl {
 public:
+    explicit Impl(const QString& iniPath)
+        : settings(iniPath, QSettings::IniFormat)
+    {
+        settings.beginGroup(QStringLiteral("scan"));
+    }
+
+    ~Impl() { settings.endGroup(); }
+
     QSettings settings;
 };
 
-AppSettings::AppSettings()
-    : d(new Impl)
+AppSettings::AppSettings(const QString& iniPath)
+    : d(new Impl(iniPath.isEmpty()
+                     ? QDir(QCoreApplication::applicationDirPath()).filePath(kFileName)
+                     : iniPath))
 {
-    d->settings.beginGroup(QStringLiteral("scan"));
 }
 
 AppSettings::~AppSettings()
 {
-    d->settings.endGroup();
     delete d;
 }
 
